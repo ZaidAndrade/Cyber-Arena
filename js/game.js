@@ -21,14 +21,18 @@ class Game {
 
         // Carga de datos persistentes desde localStorage
         this.loadProgress();
+        this.customization = this.loadCustomization();
 
         this.orientationDismissed = false;
 
-        // Entidades principales
-        this.createPlayers();
+        // Entidades principales; se crean cuando el usuario elige el modo de juego.
+        this.playerCount = 0;
+        this.players = [];
+        this.player = null;
         this.enemies = [];
         this.projectiles = [];
         this.particles = [];
+        this.explosions = [];
         this.floatingTexts = [];
         this.platforms = [];
 
@@ -44,6 +48,14 @@ class Game {
         this.comboTimer = 0;
         this.gameTime = 0;
         this.bossActive = false;
+        this.bossExplosionConfig = {
+            radius: 230,
+            maxDamage: 55,
+            minDamage: 10,
+            knockback: 17,
+            particleCount: 64,
+            screenShake: 28
+        };
 
         // Inicialización de subsistemas
         this.initResize();
@@ -67,15 +79,30 @@ class Game {
         return this.height - 80;
     }
 
-    createPlayers() {
+    createPlayers(playerCount) {
+        if (playerCount !== 1 && playerCount !== 2) {
+            throw new Error(`Cantidad de jugadores no válida: ${playerCount}`);
+        }
+
         const floorY = this.getFloorY();
         const p1 = new Player(Math.max(25, Math.min(150, this.width * 0.25)), floorY - 70, 'P1');
-        const p2 = new Player(Math.min(this.width - 25, Math.max(this.width - 150, this.width * 0.75)), floorY - 70, 'P2');
-        const weapon = WEAPONS[this.equippedWeapon] || WEAPONS.sword;
-        p1.weapon = weapon;
-        p2.weapon = weapon;
-        p2.facingRight = false;
-        this.players = [p1, p2];
+        const equippedWeapon = WEAPONS[this.equippedWeapon] || WEAPONS.sword;
+        const customizedWeapon = WEAPONS[this.customization.weaponId];
+        p1.weapon = customizedWeapon && this.purchasedWeapons.includes(customizedWeapon.id)
+            ? customizedWeapon
+            : equippedWeapon;
+        p1.color = this.customization.color;
+        p1.accentColor = this.customization.accentColor;
+        p1.nickname = this.customization.nickname;
+        p1.effects = { ...this.customization.effects };
+        this.players = [p1];
+        if (playerCount === 2) {
+            const p2 = new Player(Math.min(this.width - 25, Math.max(this.width - 150, this.width * 0.75)), floorY - 70, 'P2');
+            p2.weapon = equippedWeapon;
+            p2.facingRight = false;
+            this.players.push(p2);
+        }
+        this.playerCount = playerCount;
         this.player = p1;
     }
 
@@ -287,8 +314,10 @@ class Game {
      */
     initUI() {
         // Menú principal
-        document.getElementById('btn-play').onclick = () => { sound.init(); this.startGame(); };
+        document.getElementById('btn-play-single').onclick = () => { sound.init(); this.startGame(1); };
+        document.getElementById('btn-play-two').onclick = () => { sound.init(); this.startGame(2); };
         document.getElementById('btn-shop').onclick = () => { sound.init(); this.openShop(); };
+        document.getElementById('btn-customize').onclick = () => this.openCustomization();
         document.getElementById('btn-controls').onclick = () => { sound.init(); this.showOverlay('controls-overlay'); };
         document.getElementById('btn-progress').onclick = () => { sound.init(); this.openProgress(); };
         document.getElementById('btn-reset').onclick = () => { sound.init(); this.resetProgress(); };
@@ -298,6 +327,19 @@ class Game {
         document.getElementById('btn-close-shop').onclick = () => this.closeShop();
         document.getElementById('btn-close-controls').onclick = () => this.showOverlay('menu-overlay');
         document.getElementById('btn-close-progress').onclick = () => this.showOverlay('menu-overlay');
+        document.getElementById('btn-close-customization').onclick = () => this.cancelCustomization();
+        document.getElementById('btn-reset-customization').onclick = () => this.resetCustomizationDraft();
+        document.getElementById('customization-form').addEventListener('submit', event => this.saveCustomization(event));
+        [
+            'customization-nickname', 'customization-weapon', 'effects-enabled', 'effects-aura',
+            'effects-run-trail', 'effects-dash-trail', 'effects-jump-land', 'effects-combat-flash',
+            'effects-defeat-energy', 'effects-intensity', 'effects-density', 'effects-reduced'
+        ]
+            .forEach(id => document.getElementById(id).addEventListener('input', () => this.updateCustomizationPreview()));
+        document.querySelectorAll('.color-picker-trigger').forEach(button => {
+            button.addEventListener('click', () => this.openColorPicker(button.dataset.colorTarget));
+        });
+        this.initColorPicker();
 
         // Botones del overlay de sugerencia de rotación
         document.getElementById('btn-orientation-fullscreen').onclick = () => {
@@ -412,6 +454,476 @@ class Game {
         this.bestScore = parseInt(localStorage.getItem('bestScore')) || 0;
         this.totalKills = parseInt(localStorage.getItem('totalEnemiesDefeated')) || 0;
         this.totalBosses = parseInt(localStorage.getItem('totalBossesDefeated')) || 0;
+    }
+
+    loadCustomization() {
+        const defaults = {
+            nickname: 'STICK',
+            color: '#00f3ff',
+            accentColor: '#ffffff',
+            weaponId: 'sword',
+            effects: { ...DEFAULT_PLAYER_EFFECTS }
+        };
+
+        try {
+            const saved = JSON.parse(localStorage.getItem('playerCustomization') || '{}');
+            const nickname = typeof saved.nickname === 'string' ? saved.nickname.trim() : '';
+            const effects = saved.effects && typeof saved.effects === 'object' ? saved.effects : {};
+            const auraStyles = ['none', 'orbit', 'ring', 'flame'];
+            return {
+                nickname: this.isValidNickname(nickname) ? nickname : defaults.nickname,
+                color: this.isValidHexColor(saved.color) ? saved.color.toLowerCase() : defaults.color,
+                accentColor: this.isValidHexColor(saved.accentColor) ? saved.accentColor.toLowerCase() : defaults.accentColor,
+                weaponId: WEAPONS[saved.weaponId] ? saved.weaponId : defaults.weaponId,
+                effects: {
+                    enabled: typeof effects.enabled === 'boolean' ? effects.enabled : defaults.effects.enabled,
+                    auraStyle: auraStyles.includes(effects.auraStyle) ? effects.auraStyle : defaults.effects.auraStyle,
+                    runTrail: typeof effects.runTrail === 'boolean' ? effects.runTrail : defaults.effects.runTrail,
+                    dashTrail: typeof effects.dashTrail === 'boolean' ? effects.dashTrail : defaults.effects.dashTrail,
+                    jumpLand: typeof effects.jumpLand === 'boolean' ? effects.jumpLand : defaults.effects.jumpLand,
+                    combatFlash: typeof effects.combatFlash === 'boolean' ? effects.combatFlash : defaults.effects.combatFlash,
+                    defeatEnergy: typeof effects.defeatEnergy === 'boolean' ? effects.defeatEnergy : defaults.effects.defeatEnergy,
+                    color: this.isValidHexColor(effects.color) ? effects.color.toLowerCase() : defaults.effects.color,
+                    intensity: this.clampInteger(effects.intensity, 0, 100, defaults.effects.intensity),
+                    density: this.clampInteger(effects.density, 0, 100, defaults.effects.density),
+                    reduced: typeof effects.reduced === 'boolean' ? effects.reduced : defaults.effects.reduced
+                }
+            };
+        } catch (error) {
+            console.warn('No se pudo leer la personalización guardada; se usarán los valores iniciales.', error);
+            return defaults;
+        }
+    }
+
+    isValidNickname(nickname) {
+        return /^[\p{L}\p{N}_ -]{2,16}$/u.test(nickname);
+    }
+
+    isValidHexColor(value) {
+        return typeof value === 'string' && /^#[0-9a-f]{6}$/i.test(value);
+    }
+
+    clampInteger(value, min, max, fallback) {
+        const number = Number(value);
+        return Number.isFinite(number) ? Math.max(min, Math.min(max, Math.round(number))) : fallback;
+    }
+
+    openCustomization() {
+        const weaponSelect = document.getElementById('customization-weapon');
+        weaponSelect.replaceChildren();
+        Object.values(WEAPONS).forEach(weapon => {
+            const isUnlocked = this.purchasedWeapons.includes(weapon.id);
+            const option = new Option(
+                `${weapon.name}${isUnlocked ? '' : ' — BLOQUEADA'}`,
+                weapon.id
+            );
+            option.disabled = !isUnlocked;
+            weaponSelect.add(option);
+        });
+
+        const availableWeapon = this.purchasedWeapons.includes(this.customization.weaponId)
+            ? this.customization.weaponId
+            : this.equippedWeapon;
+        this.customizationDraft = {
+            ...this.customization,
+            weaponId: availableWeapon,
+            effects: { ...this.customization.effects }
+        };
+        this.writeCustomizationForm(this.customizationDraft);
+        document.getElementById('customization-message').textContent =
+            'Los cambios se guardan solo al pulsar Aplicar.';
+        this.updateCustomizationPreview();
+        this.showOverlay('customization-overlay');
+    }
+
+    writeCustomizationForm(draft) {
+        document.getElementById('customization-nickname').value = draft.nickname;
+        document.getElementById('customization-weapon').value = draft.weaponId;
+        document.getElementById('effects-enabled').checked = draft.effects.enabled;
+        document.getElementById('effects-aura').value = draft.effects.auraStyle;
+        document.getElementById('effects-run-trail').checked = draft.effects.runTrail;
+        document.getElementById('effects-dash-trail').checked = draft.effects.dashTrail;
+        document.getElementById('effects-jump-land').checked = draft.effects.jumpLand;
+        document.getElementById('effects-combat-flash').checked = draft.effects.combatFlash;
+        document.getElementById('effects-defeat-energy').checked = draft.effects.defeatEnergy;
+        document.getElementById('effects-intensity').value = draft.effects.intensity;
+        document.getElementById('effects-density').value = draft.effects.density;
+        document.getElementById('effects-reduced').checked = draft.effects.reduced;
+        this.setColorControl('customization-color', 'customization-color-swatch', draft.color);
+        this.setColorControl('customization-accent', 'customization-accent-swatch', draft.accentColor);
+        this.setColorControl('effects-color', 'effects-color-swatch', draft.effects.color);
+        document.getElementById('effects-intensity-value').textContent = `${draft.effects.intensity}%`;
+        document.getElementById('effects-density-value').textContent = `${draft.effects.density}%`;
+    }
+
+    setColorControl(outputId, swatchId, color) {
+        document.getElementById(outputId).textContent = color.toUpperCase();
+        document.getElementById(swatchId).style.backgroundColor = color;
+        document.getElementById(swatchId).style.color = color;
+    }
+
+    readCustomizationForm() {
+        const effects = {
+            enabled: document.getElementById('effects-enabled').checked,
+            auraStyle: document.getElementById('effects-aura').value,
+            runTrail: document.getElementById('effects-run-trail').checked,
+            dashTrail: document.getElementById('effects-dash-trail').checked,
+            jumpLand: document.getElementById('effects-jump-land').checked,
+            combatFlash: document.getElementById('effects-combat-flash').checked,
+            defeatEnergy: document.getElementById('effects-defeat-energy').checked,
+            color: this.customizationDraft.effects.color,
+            intensity: Number(document.getElementById('effects-intensity').value),
+            density: Number(document.getElementById('effects-density').value),
+            reduced: document.getElementById('effects-reduced').checked
+        };
+        return {
+            nickname: document.getElementById('customization-nickname').value.trim().replace(/\s+/g, ' '),
+            color: this.customizationDraft.color,
+            accentColor: this.customizationDraft.accentColor,
+            weaponId: document.getElementById('customization-weapon').value,
+            effects
+        };
+    }
+
+    updateCustomizationPreview() {
+        const canvas = document.getElementById('customization-preview');
+        if (!canvas) return;
+        const draft = this.readCustomizationForm();
+        const previewPlayer = this.previewPlayer || new Player(canvas.width / 2, canvas.height - 38, 'P1');
+        previewPlayer.nickname = draft.nickname || 'STICK';
+        previewPlayer.color = this.colorPickerTarget === 'color' ? this.colorPickerColor : draft.color;
+        previewPlayer.accentColor = this.colorPickerTarget === 'accentColor' ? this.colorPickerColor : draft.accentColor;
+        previewPlayer.weapon = WEAPONS[draft.weaponId] || WEAPONS.sword;
+        previewPlayer.effects = {
+            ...draft.effects,
+            color: this.colorPickerTarget === 'effects.color' ? this.colorPickerColor : draft.effects.color
+        };
+        this.previewPlayer = previewPlayer;
+        this.setColorControl('customization-color', 'customization-color-swatch', previewPlayer.color);
+        this.setColorControl('customization-accent', 'customization-accent-swatch', previewPlayer.accentColor);
+        this.setColorControl('effects-color', 'effects-color-swatch', previewPlayer.effects.color);
+        document.getElementById('effects-intensity-value').textContent = `${draft.effects.intensity}%`;
+        document.getElementById('effects-density-value').textContent = `${draft.effects.density}%`;
+
+        this.renderCustomizationPreview();
+    }
+
+    renderCustomizationPreview() {
+        const canvas = document.getElementById('customization-preview');
+        const previewPlayer = this.previewPlayer;
+        if (!canvas || !previewPlayer) return;
+        const ctx = canvas.getContext('2d');
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = '#050916';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.strokeStyle = 'rgba(0, 243, 255, 0.45)';
+        ctx.beginPath();
+        ctx.moveTo(0, canvas.height - 8);
+        ctx.lineTo(canvas.width, canvas.height - 8);
+        ctx.stroke();
+        previewPlayer.effectFrame++;
+        previewPlayer.updateEffectParticles();
+        if (previewPlayer.effects.enabled) {
+            if (previewPlayer.effects.runTrail && previewPlayer.effectFrame % 5 === 0) {
+                previewPlayer.emitEffectBurst('trail', Math.round(2 * previewPlayer.effectDensity()), -1);
+            }
+            if (previewPlayer.effects.combatFlash && previewPlayer.effectFrame % 78 === 0) {
+                previewPlayer.triggerCombatFlash();
+            }
+            if (previewPlayer.effects.defeatEnergy && previewPlayer.effectFrame % 126 === 0) {
+                previewPlayer.emitEffectBurst('defeat', Math.round(9 * previewPlayer.effectDensity()));
+            }
+        }
+        previewPlayer.draw(ctx);
+    }
+
+    getCustomizationDefaults() {
+        return {
+            nickname: 'STICK',
+            color: '#00f3ff',
+            accentColor: '#ffffff',
+            weaponId: this.purchasedWeapons.includes(this.equippedWeapon) ? this.equippedWeapon : 'sword',
+            effects: { ...DEFAULT_PLAYER_EFFECTS }
+        };
+    }
+
+    resetCustomizationDraft() {
+        this.customizationDraft = this.getCustomizationDefaults();
+        this.writeCustomizationForm(this.customizationDraft);
+        document.getElementById('customization-message').textContent =
+            'Valores iniciales restaurados. Pulsa Aplicar para guardarlos.';
+        this.updateCustomizationPreview();
+    }
+
+    cancelCustomization() {
+        this.colorPickerTarget = null;
+        document.getElementById('color-picker').classList.add('hidden');
+        this.customizationDraft = null;
+        this.showOverlay('menu-overlay');
+    }
+
+    colorTargetDefault(target) {
+        if (target === 'color') return '#00f3ff';
+        if (target === 'accentColor') return '#ffffff';
+        if (target === 'effects.color') return DEFAULT_PLAYER_EFFECTS.color;
+        throw new Error(`Destino de color desconocido: ${target}`);
+    }
+
+    getDraftColor(target) {
+        if (target === 'color' || target === 'accentColor') return this.customizationDraft[target];
+        if (target === 'effects.color') return this.customizationDraft.effects.color;
+        throw new Error(`Destino de color desconocido: ${target}`);
+    }
+
+    setDraftColor(target, color) {
+        if (target === 'color' || target === 'accentColor') this.customizationDraft[target] = color;
+        else if (target === 'effects.color') this.customizationDraft.effects.color = color;
+        else throw new Error(`Destino de color desconocido: ${target}`);
+    }
+
+    openColorPicker(target) {
+        if (!['color', 'accentColor', 'effects.color'].includes(target)) {
+            throw new Error(`Destino de color desconocido: ${target}`);
+        }
+        this.colorPickerTarget = target;
+        this.colorPickerColor = this.getDraftColor(target);
+        this.colorPickerDefault = this.colorTargetDefault(target);
+        const hsv = this.hexToHsv(this.colorPickerColor);
+        this.colorPickerHue = hsv.h;
+        this.colorPickerSaturation = hsv.s;
+        this.colorPickerValue = hsv.v;
+        document.getElementById('color-picker-error').textContent = '';
+        document.getElementById('color-picker').classList.remove('hidden');
+        this.updateColorPicker();
+        document.getElementById('color-picker-hex').focus();
+        this.updateCustomizationPreview();
+    }
+
+    closeColorPicker() {
+        this.colorPickerTarget = null;
+        document.getElementById('color-picker').classList.add('hidden');
+        document.getElementById('color-picker-error').textContent = '';
+        this.updateCustomizationPreview();
+    }
+
+    initColorPicker() {
+        const canvas = document.getElementById('color-picker-sv');
+        let pointerActive = false;
+        const updateFromPointer = event => {
+            if (!pointerActive && event.type === 'pointermove') return;
+            const bounds = canvas.getBoundingClientRect();
+            this.colorPickerSaturation = Math.max(0, Math.min(1, (event.clientX - bounds.left) / bounds.width));
+            this.colorPickerValue = 1 - Math.max(0, Math.min(1, (event.clientY - bounds.top) / bounds.height));
+            this.syncColorPickerFromHsv();
+        };
+        canvas.addEventListener('pointerdown', event => {
+            pointerActive = true;
+            canvas.setPointerCapture(event.pointerId);
+            updateFromPointer(event);
+        });
+        canvas.addEventListener('pointermove', updateFromPointer);
+        canvas.addEventListener('pointerup', () => { pointerActive = false; });
+        canvas.addEventListener('pointercancel', () => { pointerActive = false; });
+        canvas.addEventListener('keydown', event => {
+            const step = event.shiftKey ? 0.05 : 0.01;
+            if (event.key === 'ArrowLeft') this.colorPickerSaturation = Math.max(0, this.colorPickerSaturation - step);
+            else if (event.key === 'ArrowRight') this.colorPickerSaturation = Math.min(1, this.colorPickerSaturation + step);
+            else if (event.key === 'ArrowUp') this.colorPickerValue = Math.min(1, this.colorPickerValue + step);
+            else if (event.key === 'ArrowDown') this.colorPickerValue = Math.max(0, this.colorPickerValue - step);
+            else return;
+            event.preventDefault();
+            this.syncColorPickerFromHsv();
+        });
+        document.getElementById('color-picker-hue').addEventListener('input', event => {
+            this.colorPickerHue = Number(event.target.value);
+            this.syncColorPickerFromHsv();
+        });
+        document.getElementById('color-picker-hex').addEventListener('input', event => {
+            const value = event.target.value.trim();
+            if (!/^#?[0-9a-f]{6}$/i.test(value)) {
+                document.getElementById('color-picker-error').textContent = 'Introduce un HEX válido, por ejemplo #31A8FF.';
+                return;
+            }
+            this.colorPickerColor = value.startsWith('#') ? value.toLowerCase() : `#${value.toLowerCase()}`;
+            const hsv = this.hexToHsv(this.colorPickerColor);
+            this.colorPickerHue = hsv.h;
+            this.colorPickerSaturation = hsv.s;
+            this.colorPickerValue = hsv.v;
+            document.getElementById('color-picker-error').textContent = '';
+            this.updateColorPicker();
+            this.updateCustomizationPreview();
+        });
+        document.getElementById('color-picker-hex').addEventListener('blur', event => {
+            const value = event.target.value.startsWith('#') ? event.target.value : `#${event.target.value}`;
+            if (this.isValidHexColor(value)) {
+                event.target.value = value.toUpperCase();
+            }
+        });
+        document.getElementById('btn-apply-color').onclick = () => {
+            if (!this.isValidHexColor(this.colorPickerColor)) return;
+            this.setDraftColor(this.colorPickerTarget, this.colorPickerColor);
+            this.closeColorPicker();
+        };
+        document.getElementById('btn-cancel-color').onclick = () => this.closeColorPicker();
+        document.getElementById('btn-reset-color').onclick = () => {
+            const hsv = this.hexToHsv(this.colorPickerDefault);
+            this.colorPickerHue = hsv.h;
+            this.colorPickerSaturation = hsv.s;
+            this.colorPickerValue = hsv.v;
+            this.syncColorPickerFromHsv();
+        };
+    }
+
+    syncColorPickerFromHsv() {
+        this.colorPickerColor = this.hsvToHex(
+            this.colorPickerHue,
+            this.colorPickerSaturation,
+            this.colorPickerValue
+        );
+        document.getElementById('color-picker-error').textContent = '';
+        this.updateColorPicker();
+        this.updateCustomizationPreview();
+    }
+
+    updateColorPicker() {
+        const canvas = document.getElementById('color-picker-sv');
+        const ctx = canvas.getContext('2d');
+        const hueColor = `hsl(${this.colorPickerHue} 100% 50%)`;
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = hueColor;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        const white = ctx.createLinearGradient(0, 0, canvas.width, 0);
+        white.addColorStop(0, '#ffffff');
+        white.addColorStop(1, 'rgba(255, 255, 255, 0)');
+        ctx.fillStyle = white;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        const black = ctx.createLinearGradient(0, 0, 0, canvas.height);
+        black.addColorStop(0, 'rgba(0, 0, 0, 0)');
+        black.addColorStop(1, '#000000');
+        ctx.fillStyle = black;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        const markerX = Math.max(10, Math.min(canvas.width - 10, this.colorPickerSaturation * canvas.width));
+        const markerY = Math.max(10, Math.min(canvas.height - 10, (1 - this.colorPickerValue) * canvas.height));
+        ctx.beginPath();
+        ctx.arc(markerX, markerY, 7, 0, Math.PI * 2);
+        ctx.strokeStyle = this.colorPickerValue > 0.55 ? '#000000' : '#ffffff';
+        ctx.lineWidth = 3;
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.arc(markerX, markerY, 9, 0, Math.PI * 2);
+        ctx.strokeStyle = this.colorPickerValue > 0.55 ? '#ffffff' : '#000000';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+
+        const hueInput = document.getElementById('color-picker-hue');
+        hueInput.value = this.colorPickerHue;
+        hueInput.style.background = 'linear-gradient(to bottom, #ff0000, #ffff00, #00ff00, #00ffff, #0000ff, #ff00ff, #ff0000)';
+        const hexInput = document.getElementById('color-picker-hex');
+        if (document.activeElement !== hexInput || this.isValidHexColor(hexInput.value)) {
+            hexInput.value = this.colorPickerColor.toUpperCase();
+        }
+        const rgb = this.hexToRgb(this.colorPickerColor);
+        document.getElementById('color-picker-rgb').textContent = `RGB ${rgb.r}, ${rgb.g}, ${rgb.b}`;
+        document.getElementById('color-picker-preview').style.backgroundColor = this.colorPickerColor;
+        document.getElementById('color-picker-preview').style.color = this.colorPickerColor;
+    }
+
+    hexToRgb(hex) {
+        const value = hex.replace('#', '');
+        return {
+            r: parseInt(value.slice(0, 2), 16),
+            g: parseInt(value.slice(2, 4), 16),
+            b: parseInt(value.slice(4, 6), 16)
+        };
+    }
+
+    hexToHsv(hex) {
+        const { r: red, g: green, b: blue } = this.hexToRgb(hex);
+        const r = red / 255;
+        const g = green / 255;
+        const b = blue / 255;
+        const max = Math.max(r, g, b);
+        const min = Math.min(r, g, b);
+        const delta = max - min;
+        let hue = 0;
+        if (delta !== 0) {
+            if (max === r) hue = 60 * (((g - b) / delta) % 6);
+            else if (max === g) hue = 60 * ((b - r) / delta + 2);
+            else hue = 60 * ((r - g) / delta + 4);
+        }
+        return {
+            h: (hue + 360) % 360,
+            s: max === 0 ? 0 : delta / max,
+            v: max
+        };
+    }
+
+    hsvToHex(hue, saturation, value) {
+        const chroma = value * saturation;
+        const section = hue / 60;
+        const x = chroma * (1 - Math.abs((section % 2) - 1));
+        const [r, g, b] = section < 1 ? [chroma, x, 0] :
+            section < 2 ? [x, chroma, 0] :
+            section < 3 ? [0, chroma, x] :
+            section < 4 ? [0, x, chroma] :
+            section < 5 ? [x, 0, chroma] : [chroma, 0, x];
+        const offset = value - chroma;
+        return `#${[r, g, b].map(channel =>
+            Math.round((channel + offset) * 255).toString(16).padStart(2, '0')
+        ).join('')}`;
+    }
+
+    saveCustomization(event) {
+        event.preventDefault();
+        const customization = this.readCustomizationForm();
+        const nicknameInput = document.getElementById('customization-nickname');
+        const { nickname, weaponId } = customization;
+        const message = document.getElementById('customization-message');
+
+        if (!this.isValidNickname(nickname)) {
+            message.textContent = 'Usa un apodo de 2 a 16 caracteres: letras, números, espacios, guion o _.';
+            nicknameInput.focus();
+            return;
+        }
+        if (!WEAPONS[weaponId] || !this.purchasedWeapons.includes(weaponId)) {
+            message.textContent = 'Desbloquea esa arma en la armería antes de equiparla.';
+            return;
+        }
+        if (!['none', 'orbit', 'ring', 'flame'].includes(customization.effects.auraStyle) ||
+            !this.isValidHexColor(customization.color) ||
+            !this.isValidHexColor(customization.accentColor) ||
+            !this.isValidHexColor(customization.effects.color)) {
+            message.textContent = 'Hay valores de color o efectos no válidos. Restablécelos e inténtalo de nuevo.';
+            return;
+        }
+
+        try {
+            localStorage.setItem('playerCustomization', JSON.stringify(customization));
+        } catch (error) {
+            console.error('No se pudo guardar la personalización.', error);
+            message.textContent = 'No se pudo guardar. Comprueba el espacio disponible del navegador.';
+            return;
+        }
+
+        this.customization = customization;
+        this.applyCustomizationToPlayers();
+        this.customizationDraft = {
+            ...customization,
+            effects: { ...customization.effects }
+        };
+        message.textContent = 'Personalización y efectos aplicados y guardados.';
+        this.updateCustomizationPreview();
+    }
+
+    applyCustomizationToPlayers() {
+        const player = this.players[0];
+        if (!player) return;
+        player.nickname = this.customization.nickname;
+        player.color = this.customization.color;
+        player.accentColor = this.customization.accentColor;
+        player.weapon = WEAPONS[this.customization.weaponId] || WEAPONS.sword;
+        player.effects = { ...this.customization.effects };
     }
 
     /**
@@ -613,8 +1125,9 @@ class Game {
     /**
      * Inicia una nueva partida
      */
-    startGame() {
-        this.createPlayers();
+    startGame(playerCount = this.playerCount) {
+        this.createPlayers(playerCount);
+        this.input.setPlayerCount(playerCount);
         this.input.clearAttacks();
         this.teamInvulnerableTimer = 0;
         this.currentZone = 1;
@@ -622,6 +1135,7 @@ class Game {
         this.enemies = [];
         this.projectiles = [];
         this.particles = [];
+        this.explosions = [];
         this.floatingTexts = [];
         this.combo = 0;
         this.gameTime = 0;
@@ -755,12 +1269,13 @@ class Game {
     }
 
     /**
-     * REGLA OBLIGATORIA DE DAÑO: Exactamente 5 HP por impacto recibido
+     * Mantiene la vida compartida; los ataques normales siguen causando 5 HP.
      */
     damagePlayer(amount = 5, target = this.player) {
-        if (this.teamInvulnerableTimer > 0 || this.state !== 'PLAYING') return;
+        if (this.teamInvulnerableTimer > 0 || this.state !== 'PLAYING' || amount <= 0) return;
 
-        this.player.hp = Math.max(0, this.player.hp - 5);
+        const actualDamage = Math.min(this.player.hp, amount);
+        this.player.hp = Math.max(0, this.player.hp - actualDamage);
         this.players.forEach(player => { player.hp = this.player.hp; });
         target.invulnerableTimer = 34;
         this.teamInvulnerableTimer = 34; // ~550ms de invulnerabilidad compartida
@@ -770,10 +1285,10 @@ class Game {
         this.screenShake = 14;
         this.damageFlash = 12;
 
-        this.floatingTexts.push(new FloatingText(target.x, target.y - 32, '-5', '#ff0055', 24));
+        this.floatingTexts.push(new FloatingText(target.x, target.y - 32, `-${Math.round(actualDamage)}`, '#ff0055', 24));
 
         // Empuje ligero
-        target.vx = target.facingRight ? -7 : 7;
+        target.knockbackVx = target.facingRight ? -7 : 7;
         target.vy = -3.5;
 
         this.updateHUD();
@@ -781,6 +1296,59 @@ class Game {
         if (this.player.hp <= 0) {
             this.triggerGameOver();
         }
+    }
+
+    triggerBossDeathExplosion(boss) {
+        if (boss.deathExplosionTriggered) return;
+        boss.deathExplosionTriggered = true;
+
+        const config = this.bossExplosionConfig;
+        this.explosions.push(new ExplosionEffect(boss.x, boss.y, config.radius, boss.color));
+        this.screenShake = Math.max(this.screenShake, config.screenShake);
+        sound.playBossSlam();
+        this.vibrate(70);
+
+        for (let i = 0; i < config.particleCount; i++) {
+            const angle = Math.random() * Math.PI * 2;
+            const speed = 3 + Math.random() * 10;
+            this.particles.push(new Particle(
+                boss.x,
+                boss.y - 12,
+                Math.cos(angle) * speed,
+                Math.sin(angle) * speed,
+                i % 4 === 0 ? '#ffffff' : boss.color,
+                3 + Math.random() * 4,
+                24 + Math.floor(Math.random() * 20)
+            ));
+        }
+
+        const affectedPlayers = this.players
+            .map(player => ({ player, distance: Math.hypot(player.x - boss.x, player.y - boss.y) }))
+            .filter(({ distance }) => distance < config.radius);
+        if (affectedPlayers.length === 0) return;
+
+        const closest = affectedPlayers.reduce((nearest, current) =>
+            current.distance < nearest.distance ? current : nearest
+        );
+        affectedPlayers.forEach(({ player, distance }) => {
+            const falloff = 1 - distance / config.radius;
+            const directionX = player.x - boss.x;
+            const directionY = player.y - boss.y;
+            const directionLength = Math.hypot(directionX, directionY) || 1;
+            player.knockbackVx = (directionX / directionLength) * config.knockback * falloff;
+            player.vy = Math.min(player.vy, -config.knockback * 0.3 * falloff);
+        });
+        const damage = config.minDamage +
+            (config.maxDamage - config.minDamage) * (1 - closest.distance / config.radius);
+        this.damagePlayer(damage, closest.player);
+        this.screenShake = Math.max(this.screenShake, config.screenShake);
+        const directionX = closest.player.x - boss.x;
+        const directionY = closest.player.y - boss.y;
+        const directionLength = Math.hypot(directionX, directionY) || 1;
+        const falloff = 1 - closest.distance / config.radius;
+        closest.player.knockbackVx = (directionX / directionLength) *
+            config.knockback * falloff;
+        closest.player.vy = Math.min(closest.player.vy, -config.knockback * 0.3 * falloff);
     }
 
     /**
@@ -841,6 +1409,7 @@ class Game {
                     this.combo++;
                     this.comboTimer = 90;
                     sound.playHit();
+                    p.triggerCombatFlash();
 
                     // Texto de daño
                     this.floatingTexts.push(new FloatingText(
@@ -877,10 +1446,14 @@ class Game {
                             this.totalBosses++;
                             this.addCoins(100, e.x, e.y);
                             this.healPlayer(50, p.x, p.y);
+                            this.triggerBossDeathExplosion(e);
                         } else {
                             // REGLA OBLIGATORIA DE RECOMPENSA: +10 Monedas y +40 HP por enemigo
                             this.addCoins(10, e.x, e.y);
                             this.healPlayer(40, p.x, p.y);
+                        }
+                        if (p.effects.enabled && p.effects.defeatEnergy) {
+                            p.emitEffectBurst('defeat', Math.round(14 * p.effectDensity()));
                         }
 
                         this.saveProgress();
@@ -899,8 +1472,9 @@ class Game {
             let blockedByPlatform = false;
             if (this.platforms) {
                 for (const plat of this.platforms) {
-                    if (pr.x >= plat.x && pr.x <= plat.x + plat.w &&
-                        pr.y >= plat.y && pr.y <= plat.y + plat.h) {
+                    const nearestX = Math.max(plat.x, Math.min(pr.x, plat.x + plat.w));
+                    const nearestY = Math.max(plat.y, Math.min(pr.y, plat.y + plat.h));
+                    if (Math.hypot(pr.x - nearestX, pr.y - nearestY) <= pr.radius) {
                         blockedByPlatform = true;
                         for (let k = 0; k < 6; k++) {
                             this.particles.push(new Particle(
@@ -925,9 +1499,10 @@ class Game {
                     Math.hypot(pr.x - player.x, pr.y - player.y) <
                     Math.hypot(pr.x - nearest.x, pr.y - nearest.y) ? player : nearest
                 );
-                const dist = Math.hypot(pr.x - target.x, pr.y - target.y);
-                if (dist < (pr.isFalling ? 32 : 26)) {
-                    this.damagePlayer(5, target);
+                const hitX = Math.max(0, Math.abs(pr.x - target.x) - target.width / 2);
+                const hitY = Math.max(0, Math.abs(pr.y - (target.y + 3)) - target.height / 2);
+                if (Math.hypot(hitX, hitY) <= pr.radius + (pr.isFalling ? 8 : 4)) {
+                    this.damagePlayer(pr.damage, target);
                     pr.active = false;
                     for (let k = 0; k < 12; k++) {
                         this.particles.push(new Particle(
@@ -947,6 +1522,8 @@ class Game {
      * Actualización de la barra de estado (HUD)
      */
     updateHUD() {
+        if (!this.player) return;
+
         const hpBar = document.getElementById('hp-bar');
         const hpPercent = Math.max(0, Math.min(100, (this.player.hp / this.player.maxHp) * 100));
         hpBar.style.width = `${hpPercent}%`;
@@ -1072,7 +1649,16 @@ class Game {
      */
     update() {
         this.input.pollGamepads();
-        if (this.state !== 'PLAYING') return;
+        if (this.particles.length > 360) this.particles.splice(0, this.particles.length - 360);
+        if (this.state !== 'PLAYING') {
+            if (this.state === 'GAMEOVER' || this.state === 'VICTORY' || this.state === 'MENU') {
+                for (let i = this.explosions.length - 1; i >= 0; i--) {
+                    this.explosions[i].update();
+                    if (this.explosions[i].life <= 0) this.explosions.splice(i, 1);
+                }
+            }
+            return;
+        }
 
         const floorY = this.getFloorY();
         this.gameTime++;
@@ -1126,6 +1712,7 @@ class Game {
         }
 
         this.checkCombatCollisions();
+        if (this.particles.length > 360) this.particles.splice(0, this.particles.length - 360);
 
         // Decaimiento del contador de combo
         if (this.comboTimer > 0) {
@@ -1140,6 +1727,11 @@ class Game {
         for (let i = this.particles.length - 1; i >= 0; i--) {
             this.particles[i].update();
             if (this.particles[i].life <= 0) this.particles.splice(i, 1);
+        }
+
+        for (let i = this.explosions.length - 1; i >= 0; i--) {
+            this.explosions[i].update();
+            if (this.explosions[i].life <= 0) this.explosions.splice(i, 1);
         }
 
         // Actualización de textos flotantes
@@ -1159,7 +1751,7 @@ class Game {
         this.ctx.save();
 
         // Efecto de vibración de pantalla (Screen Shake)
-        if (this.screenShake > 0) {
+        if (this.screenShake > 0 && this.state === 'PLAYING') {
             const rx = (Math.random() - 0.5) * this.screenShake;
             const ry = (Math.random() - 0.5) * this.screenShake;
             this.ctx.translate(rx, ry);
@@ -1265,10 +1857,16 @@ class Game {
             this.particles.forEach(pt => { pt.update(); pt.draw(this.ctx); });
         }
 
+        this.explosions.forEach(explosion => explosion.draw(this.ctx));
+
         // Flash de daño rojo al recibir golpe
         if (this.damageFlash > 0) {
             this.ctx.fillStyle = 'rgba(255, 0, 85, 0.22)';
             this.ctx.fillRect(0, 0, this.width, this.height);
+        }
+
+        if (!document.getElementById('customization-overlay').classList.contains('hidden')) {
+            this.renderCustomizationPreview();
         }
 
         this.ctx.restore();

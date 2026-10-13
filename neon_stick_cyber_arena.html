@@ -96,9 +96,12 @@
         <div id="menu-overlay" class="overlay">
             <h1 class="neon-title">NEON STICK</h1>
             <div class="neon-subtitle">CYBER ARENA</div>
+            <div class="panel-title">Selecciona el modo de juego:</div>
             <div class="btn-container">
-                <button id="btn-play" class="btn">JUGAR</button>
+                <button id="btn-play-single" class="btn">1 JUGADOR</button>
+                <button id="btn-play-two" class="btn">2 JUGADORES</button>
                 <button id="btn-shop" class="btn">TIENDA / ARMAS</button>
+                <button id="btn-customize" class="btn btn-purple">PERSONALIZAR STICKMAN</button>
                 <button id="btn-controls" class="btn">CONTROLES</button>
                 <button id="btn-progress" class="btn">PROGRESO</button>
                 <button id="btn-fullscreen-menu" class="btn btn-purple">⛶ PANTALLA COMPLETA</button>
@@ -128,6 +131,115 @@
                     <!-- Tarjetas dinámicas de armas inyectadas por JS -->
                 </div>
                 <button id="btn-close-shop" class="btn" style="margin-top: 14px;">VOLVER</button>
+            </div>
+        </div>
+
+        <!-- PANTALLA: PERSONALIZACIÓN DEL STICKMAN -->
+        <div id="customization-overlay" class="overlay hidden">
+            <form id="customization-form" class="panel customization-panel">
+                <div class="panel-title">PERSONALIZA TU STICKMAN</div>
+                <label class="customization-field">
+                    <span>Apodo (2–16 caracteres)</span>
+                    <input id="customization-nickname" name="nickname" type="text" maxlength="16" autocomplete="nickname" required>
+                </label>
+                <label class="customization-field">
+                    <span>Color principal</span>
+                    <div class="customization-color-control">
+                        <span id="customization-color-swatch" class="color-swatch" aria-hidden="true"></span>
+                        <output id="customization-color" class="color-value">#00F3FF</output>
+                        <button class="btn color-picker-trigger" type="button" data-color-target="color">ELEGIR</button>
+                    </div>
+                </label>
+                <label class="customization-field">
+                    <span>Color de acento</span>
+                    <div class="customization-color-control">
+                        <span id="customization-accent-swatch" class="color-swatch" aria-hidden="true"></span>
+                        <output id="customization-accent" class="color-value">#FFFFFF</output>
+                        <button class="btn color-picker-trigger" type="button" data-color-target="accentColor">ELEGIR</button>
+                    </div>
+                </label>
+                <label class="customization-field">
+                    <span>Arma desbloqueada</span>
+                    <select id="customization-weapon" name="weaponId"></select>
+                </label>
+                <section class="player-effects">
+                    <h3>EFECTOS DEL JUGADOR</h3>
+                    <label class="effect-toggle">
+                        <input id="effects-enabled" type="checkbox">
+                        Activar efectos cosméticos
+                    </label>
+                    <label class="customization-field">
+                        <span>Estilo de aura</span>
+                        <select id="effects-aura">
+                            <option value="orbit">Órbita</option>
+                            <option value="ring">Anillos</option>
+                            <option value="flame">Llama</option>
+                            <option value="none">Sin aura</option>
+                        </select>
+                    </label>
+                    <div class="effect-toggle-grid">
+                        <label class="effect-toggle"><input id="effects-run-trail" type="checkbox"> Estela al correr</label>
+                        <label class="effect-toggle"><input id="effects-dash-trail" type="checkbox"> Estela de impulso</label>
+                        <label class="effect-toggle"><input id="effects-jump-land" type="checkbox"> Salto y aterrizaje</label>
+                        <label class="effect-toggle"><input id="effects-combat-flash" type="checkbox"> Destellos de combate</label>
+                        <label class="effect-toggle"><input id="effects-defeat-energy" type="checkbox"> Energía al derrotar</label>
+                    </div>
+                    <label class="customization-field">
+                        <span>Color de efectos</span>
+                        <div class="customization-color-control">
+                            <span id="effects-color-swatch" class="color-swatch" aria-hidden="true"></span>
+                            <output id="effects-color" class="color-value">#00F3FF</output>
+                            <button class="btn color-picker-trigger" type="button" data-color-target="effects.color">ELEGIR</button>
+                        </div>
+                    </label>
+                    <label class="customization-field effect-range">
+                        <span>Intensidad <output id="effects-intensity-value">70%</output></span>
+                        <input id="effects-intensity" type="range" min="0" max="100" step="1">
+                    </label>
+                    <label class="customization-field effect-range">
+                        <span>Densidad <output id="effects-density-value">55%</output></span>
+                        <input id="effects-density" type="range" min="0" max="100" step="1">
+                    </label>
+                    <label class="effect-toggle">
+                        <input id="effects-reduced" type="checkbox">
+                        Reducir efectos para mejorar el rendimiento
+                    </label>
+                    <p class="effects-note">Los efectos son visuales; la estela de impulso se activa durante retrocesos rápidos. No hay una habilidad de dash en los controles actuales.</p>
+                </section>
+                <div class="customization-preview-wrap">
+                    <span>VISTA PREVIA</span>
+                    <canvas id="customization-preview" width="320" height="150" aria-label="Vista previa del Stickman personalizado"></canvas>
+                </div>
+                <div id="customization-message" class="customization-message" role="status" aria-live="polite"></div>
+                <div class="customization-actions">
+                    <button id="btn-save-customization" class="btn btn-green" type="submit">APLICAR</button>
+                    <button id="btn-reset-customization" class="btn btn-purple" type="button">RESTABLECER</button>
+                    <button id="btn-close-customization" class="btn btn-magenta" type="button">CANCELAR</button>
+                </div>
+            </form>
+            <div id="color-picker" class="color-picker-backdrop hidden">
+                <section class="color-picker-dialog" role="dialog" aria-modal="true" aria-labelledby="color-picker-title">
+                    <h3 id="color-picker-title">SELECTOR DE COLOR</h3>
+                    <div class="color-picker-workspace">
+                        <canvas id="color-picker-sv" width="280" height="190" role="application" tabindex="0"
+                            aria-label="Selector bidimensional de saturación y brillo. Usa las flechas para ajustar el color."></canvas>
+                        <div class="hue-control">
+                            <label for="color-picker-hue">Tono</label>
+                            <input id="color-picker-hue" type="range" min="0" max="359" step="1" aria-label="Tono">
+                        </div>
+                    </div>
+                    <div class="color-picker-values">
+                        <label>HEX <input id="color-picker-hex" type="text" maxlength="7" value="#00F3FF" autocomplete="off" spellcheck="false"></label>
+                        <output id="color-picker-rgb">RGB 0, 243, 255</output>
+                        <span id="color-picker-preview" class="picker-color-preview" aria-label="Vista previa del color"></span>
+                    </div>
+                    <div id="color-picker-error" class="customization-message" role="status" aria-live="polite"></div>
+                    <div class="customization-actions">
+                        <button id="btn-apply-color" class="btn btn-green" type="button">APLICAR</button>
+                        <button id="btn-reset-color" class="btn btn-purple" type="button">RESTABLECER</button>
+                        <button id="btn-cancel-color" class="btn btn-magenta" type="button">CANCELAR</button>
+                    </div>
+                </section>
             </div>
         </div>
 

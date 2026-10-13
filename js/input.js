@@ -34,6 +34,7 @@ class InputManager {
         this.connectedGamepads = new Map();
         this.gamepadAssignments = new Map();
         this.gamepadAttackButtons = new Map();
+        this.playerCount = 0;
 
         this.handleKeyDown = event => this.onKeyDown(event);
         this.handleKeyUp = event => this.onKeyUp(event);
@@ -55,6 +56,9 @@ class InputManager {
         }
 
         for (const playerId of ['p1', 'p2']) {
+            if ((playerId === 'p1' && this.playerCount < 1) ||
+                (playerId === 'p2' && this.playerCount < 2)) continue;
+
             const actions = this.bindings[playerId][event.code];
             if (!actions) continue;
 
@@ -83,6 +87,9 @@ class InputManager {
 
     onKeyUp(event) {
         for (const playerId of ['p1', 'p2']) {
+            if ((playerId === 'p1' && this.playerCount < 1) ||
+                (playerId === 'p2' && this.playerCount < 2)) continue;
+
             const actions = this.bindings[playerId][event.code];
             if (!actions) continue;
             for (const action of actions) {
@@ -137,7 +144,9 @@ class InputManager {
         this.sources.p2.gamepad.clear();
         for (const pad of pads) {
             const playerId = this.gamepadAssignments.get(pad.index);
-            if (!playerId) continue;
+            if (!playerId ||
+                (playerId === 'p1' && this.playerCount < 1) ||
+                (playerId === 'p2' && this.playerCount < 2)) continue;
 
             const actions = this.sources[playerId].gamepad;
             const horizontal = pad.axes[0] || 0;
@@ -201,6 +210,21 @@ class InputManager {
         const queue = this.attackQueues[playerId];
         if (!queue) throw new Error(`Jugador de entrada desconocido: ${playerId}`);
         queue.push(type);
+    }
+
+    setPlayerCount(playerCount) {
+        if (playerCount !== 1 && playerCount !== 2) {
+            throw new Error(`Cantidad de jugadores no válida: ${playerCount}`);
+        }
+
+        this.playerCount = playerCount;
+        if (playerCount === 1) {
+            this.keyboardActions.p2.clear();
+            this.sources.p2.touch.clear();
+            this.sources.p2.gamepad.clear();
+            this.attackQueues.p2.length = 0;
+        }
+        this.pollGamepads();
     }
 
     getActions(playerId) {

@@ -48,6 +48,27 @@ const WEAPONS = {
     }
 };
 
+const DEFAULT_PLAYER_EFFECTS = {
+    enabled: true,
+    auraStyle: 'orbit',
+    runTrail: true,
+    dashTrail: true,
+    jumpLand: true,
+    combatFlash: true,
+    defeatEnergy: true,
+    color: '#00f3ff',
+    intensity: 70,
+    density: 55,
+    reduced: false
+};
+
+const MAX_COSMETIC_PARTICLES = 72;
+
+function addBoundedParticle(particles, particle, limit = 360) {
+    if (particles.length >= limit) particles.splice(0, particles.length - limit + 1);
+    particles.push(particle);
+}
+
 /**
  * Clase Partícula para efectos visuales neón
  */
@@ -82,6 +103,44 @@ class Particle {
         ctx.beginPath();
         ctx.arc(this.x, this.y, this.size * progress, 0, Math.PI * 2);
         ctx.fill();
+        ctx.restore();
+    }
+}
+
+class ExplosionEffect {
+    constructor(x, y, radius, color) {
+        this.x = x;
+        this.y = y;
+        this.radius = radius;
+        this.color = color;
+        this.life = 32;
+        this.maxLife = 32;
+    }
+
+    update() {
+        this.life--;
+    }
+
+    draw(ctx) {
+        if (this.life <= 0) return;
+        const progress = 1 - this.life / this.maxLife;
+        const alpha = this.life / this.maxLife;
+        const radius = Math.max(1, progress * this.radius);
+
+        ctx.save();
+        ctx.globalAlpha = alpha;
+        ctx.lineWidth = 8 * alpha + 2;
+        ctx.strokeStyle = this.color;
+        ctx.shadowColor = this.color;
+        ctx.shadowBlur = 28;
+        ctx.beginPath();
+        ctx.arc(this.x, this.y, radius, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.globalAlpha = alpha * 0.45;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(this.x, this.y, radius * 0.68, 0, Math.PI * 2);
+        ctx.stroke();
         ctx.restore();
     }
 }
@@ -124,7 +183,7 @@ class FloatingText {
  * Proyectiles hostiles y especiales
  */
 class Projectile {
-    constructor(x, y, vx, vy, color, isHostile = true, damage = 5, isFalling = false) {
+    constructor(x, y, vx, vy, color, isHostile = true, damage = 5, isFalling = false, guidance = null) {
         this.x = x;
         this.y = y;
         this.vx = vx;
@@ -135,9 +194,26 @@ class Projectile {
         this.radius = isHostile ? (isFalling ? 8 : 6) : 9;
         this.active = true;
         this.isFalling = isFalling;
+        this.guidance = guidance;
+        this.speed = Math.hypot(vx, vy);
+        this.angle = Math.atan2(vy, vx);
     }
 
     update(width, floorY = 9999) {
+        if (this.guidance && this.guidance.target) {
+            const dx = this.guidance.target.x - this.x;
+            const dy = this.guidance.target.y + 3 - this.y;
+            const targetAngle = Math.atan2(dy, dx);
+            const angleDelta = Math.atan2(
+                Math.sin(targetAngle - this.angle),
+                Math.cos(targetAngle - this.angle)
+            );
+            const maxTurn = this.guidance.turnRate;
+            this.angle += Math.max(-maxTurn, Math.min(maxTurn, angleDelta));
+            this.vx = Math.cos(this.angle) * this.speed;
+            this.vy = Math.sin(this.angle) * this.speed;
+        }
+
         this.x += this.vx;
         this.y += this.vy;
         if (this.x < -60 || this.x > width + 60 || this.y > floorY + 30 || this.y < -150) {
@@ -208,6 +284,14 @@ class Player {
         this.invulnerableTimer = 0;
         this.animFrame = 0;
         this.weapon = WEAPONS.sword;
+        this.color = '#00f3ff';
+        this.accentColor = '#ffffff';
+        this.nickname = '';
+        this.knockbackVx = 0;
+        this.effects = { ...DEFAULT_PLAYER_EFFECTS };
+        this.effectParticles = [];
+        this.effectFrame = 0;
+        this.combatFlashTimer = 0;
 
         // Articulaciones para animación cinemática
         this.legAngle = 0;
@@ -215,6 +299,7 @@ class Player {
     }
 
     update(actions, platforms, floorY, arenaWidth) {
+        const wasGrounded = this.isGrounded;
         const speed = 5.6;
         this.vx = 0;
 
@@ -227,11 +312,15 @@ class Player {
             this.vx = speed;
             this.facingRight = true;
         }
+        this.vx += this.knockbackVx;
+        this.knockbackVx *= 0.82;
+        this.effectFrame++;
 
         if (actions.jump && this.isGrounded) {
             this.vy = -13.0;
             this.isGrounded = false;
             sound.playJump();
+            this.emitEffectBurst('jump', Math.round(5 * this.effectDensity()));
         }
         this.isCrouching = actions.crouch;
 
@@ -264,6 +353,28 @@ class Player {
                 this.isGrounded = true;
             }
         });
+
+        if (!this.isGrounded && this.y + this.feetOffset >= floorY) {
+            this.y = floorY - this.feetOffset;
+            this.vy = 0;
+            this.isGrounded = true;
+        }
+
+        if (!wasGrounded && this.isGrounded && this.effects.enabled && this.effects.jumpLand) {
+            this.emitEffectBurst('land', Math.round(7 * this.effectDensity()));
+        }
+        if (this.effects.enabled) {
+            if (this.isGrounded && Math.abs(this.vx) > speed * 0.7 &&
+                this.effects.runTrail && this.effectFrame % 4 === 0) {
+                this.emitEffectBurst('trail', 1, this.facingRight ? -1 : 1);
+            }
+            if (Math.abs(this.knockbackVx) > 4.5 && this.effects.dashTrail && this.effectFrame % 2 === 0) {
+                this.emitEffectBurst('dash', 2, this.knockbackVx > 0 ? -1 : 1);
+            }
+        }
+
+        this.updateEffectParticles();
+        if (this.combatFlashTimer > 0) this.combatFlashTimer--;
 
         // Decaimiento de invulnerabilidad
         if (this.invulnerableTimer > 0) {
@@ -319,7 +430,135 @@ class Player {
         return true;
     }
 
+    effectDensity() {
+        if (!this.effects.enabled) return 0;
+        const density = Math.max(0, Math.min(100, this.effects.density)) / 100;
+        return density * (this.effects.reduced ? 0.35 : 1);
+    }
+
+    updateEffectParticles() {
+        for (let i = this.effectParticles.length - 1; i >= 0; i--) {
+            const particle = this.effectParticles[i];
+            particle.update();
+            if (particle.life <= 0) this.effectParticles.splice(i, 1);
+        }
+    }
+
+    emitEffectBurst(kind, count, direction = 0) {
+        if (!this.effects.enabled || this.effects.density <= 0) return;
+        const color = this.effects.color;
+        const intensity = Math.max(0, Math.min(1.5, this.effects.intensity / 70));
+        if (intensity === 0) return;
+        const reducedScale = this.effects.reduced ? 0.45 : 1;
+        const originX = this.x - direction * 12;
+        const originY = this.y + 9;
+
+        for (let i = 0; i < count; i++) {
+            let vx = (Math.random() - 0.5) * 4;
+            let vy = -Math.random() * 4;
+            let life = 20;
+            let size = 2.5;
+            if (kind === 'trail' || kind === 'dash') {
+                vx = direction * (1 + Math.random() * 2);
+                vy = (Math.random() - 0.5) * 2;
+                life = kind === 'dash' ? 20 : 14;
+                size = kind === 'dash' ? 3.5 : 2.5;
+            } else if (kind === 'land') {
+                vx = (Math.random() - 0.5) * 6;
+                vy = -Math.random() * 3;
+                life = 16;
+                size = 3;
+            } else if (kind === 'combat' || kind === 'defeat') {
+                const angle = Math.random() * Math.PI * 2;
+                const velocity = (kind === 'defeat' ? 3.5 : 2.5) + Math.random() * 3;
+                vx = Math.cos(angle) * velocity;
+                vy = Math.sin(angle) * velocity;
+                life = kind === 'defeat' ? 30 : 18;
+                size = kind === 'defeat' ? 3.5 : 2.5;
+            }
+            addBoundedParticle(this.effectParticles, new Particle(
+                originX,
+                originY,
+                vx * reducedScale * intensity,
+                vy * reducedScale * intensity,
+                color,
+                size * reducedScale * intensity,
+                Math.max(8, Math.round(life * reducedScale))
+            ), MAX_COSMETIC_PARTICLES);
+        }
+    }
+
+    triggerCombatFlash() {
+        if (!this.effects.enabled || !this.effects.combatFlash) return;
+        this.combatFlashTimer = this.effects.reduced ? 5 : 9;
+        this.emitEffectBurst('combat', Math.round(5 * this.effectDensity()));
+    }
+
+    drawEffects(ctx) {
+        const effects = this.effects;
+        if (!effects || !effects.enabled) return;
+
+        const intensity = Math.max(0, Math.min(1.5, effects.intensity / 70));
+        if (intensity === 0) return;
+        const pulse = effects.reduced ? 0 : Math.sin(Date.now() / 160) * 2;
+        if (effects.auraStyle && effects.auraStyle !== 'none') {
+            ctx.save();
+            ctx.strokeStyle = effects.color;
+            ctx.fillStyle = effects.color;
+            ctx.shadowColor = effects.color;
+            ctx.shadowBlur = (effects.reduced ? 7 : 16) * intensity;
+            ctx.globalAlpha = Math.min(0.85, (0.25 + intensity * 0.22) * intensity);
+            ctx.lineWidth = effects.reduced ? 2 : 2.5;
+            if (effects.auraStyle === 'orbit') {
+                for (let i = 0; i < (effects.reduced ? 2 : 3); i++) {
+                    const angle = Date.now() / (effects.reduced ? 1100 : 700) + i * Math.PI * 2 / 3;
+                    const x = this.x + Math.cos(angle) * 22;
+                    const y = this.y - 14 + Math.sin(angle) * 24;
+                    ctx.beginPath();
+                    ctx.arc(x, y, effects.reduced ? 2 : 3, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+                ctx.beginPath();
+                ctx.ellipse(this.x, this.y - 8, 23 + pulse, 34 + pulse, 0, 0, Math.PI * 2);
+                ctx.stroke();
+            } else if (effects.auraStyle === 'ring') {
+                ctx.beginPath();
+                ctx.ellipse(this.x, this.y - 5, 25 + pulse, 38 + pulse, 0, 0, Math.PI * 2);
+                ctx.stroke();
+                if (!effects.reduced) {
+                    ctx.globalAlpha *= 0.45;
+                    ctx.beginPath();
+                    ctx.ellipse(this.x, this.y - 5, 31 - pulse, 44 - pulse, 0, 0, Math.PI * 2);
+                    ctx.stroke();
+                }
+            } else if (effects.auraStyle === 'flame') {
+                const flicker = effects.reduced ? 0 : Math.sin(Date.now() / 75) * 3;
+                ctx.beginPath();
+                ctx.ellipse(this.x, this.y - 5, 22 + pulse, 36 + flicker, 0, 0, Math.PI * 2);
+                ctx.stroke();
+                ctx.globalAlpha *= 0.22;
+                ctx.fill();
+            }
+            ctx.restore();
+        }
+
+        if (this.combatFlashTimer > 0) {
+            ctx.save();
+            ctx.globalAlpha = Math.min(0.65, this.combatFlashTimer / 14);
+            ctx.fillStyle = effects.color;
+            ctx.shadowColor = effects.color;
+            ctx.shadowBlur = 16 * intensity;
+            ctx.beginPath();
+            ctx.arc(this.x, this.y - 12, 18 * intensity, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.restore();
+        }
+
+        this.effectParticles.forEach(particle => particle.draw(ctx));
+    }
+
     draw(ctx) {
+        this.drawEffects(ctx);
         ctx.save();
         ctx.translate(this.x, this.y);
         if (this.isCrouching) {
@@ -333,7 +572,7 @@ class Player {
         }
 
         const dir = this.facingRight ? 1 : -1;
-        const cyan = '#00f3ff';
+        const cyan = this.color;
 
         ctx.strokeStyle = cyan;
         ctx.shadowColor = cyan;
@@ -348,7 +587,7 @@ class Player {
         ctx.stroke();
 
         // Ojo neón estilo visor
-        ctx.fillStyle = '#ffffff';
+        ctx.fillStyle = this.accentColor;
         ctx.beginPath();
         ctx.arc(3 * dir, -22, 2.2, 0, Math.PI * 2);
         ctx.fill();
@@ -431,10 +670,10 @@ class Player {
         ctx.save();
         ctx.font = "700 14px 'Orbitron', sans-serif";
         ctx.textAlign = 'center';
-        ctx.fillStyle = this.playerId === 'P2' ? '#ff00aa' : '#00f3ff';
+        ctx.fillStyle = this.playerId === 'P2' ? '#ff00aa' : this.accentColor;
         ctx.shadowColor = ctx.fillStyle;
         ctx.shadowBlur = 10;
-        ctx.fillText(this.playerId, this.x, this.y - 43);
+        ctx.fillText(this.nickname || this.playerId, this.x, this.y - 43);
         ctx.restore();
     }
 }
@@ -450,10 +689,16 @@ class Enemy {
         this.vx = 0;
         this.vy = 0;
         this.isDead = false;
+        this.deathExplosionTriggered = false;
         this.facingRight = true;
         this.attackCooldown = Math.floor(Math.random() * 15);
         this.isAttacking = false;
         this.attackAnim = 0;
+        this.shotChargeTimer = 0;
+        this.shotTarget = null;
+        this.shotSpeed = 0;
+        this.shotTurnRate = 0;
+        this.shotSpread = 0;
 
         // Configuración calibrada de enemigos y jefes con mayor dinamismo
         if (type === 'basic') {
@@ -491,6 +736,29 @@ class Enemy {
 
     update(player, projectiles, floorY, arenaWidth, onMeleeDamage, platforms = [], particles = null, onScreenShake = null) {
         if (this.isDead) return;
+
+        if (this.shotChargeTimer > 0) {
+            this.shotChargeTimer--;
+            this.vx = 0;
+            if (this.shotChargeTimer === 0 && this.shotTarget) {
+                const dx = this.shotTarget.x - this.x;
+                const dy = this.shotTarget.y + 3 - (this.y - 12 * this.scale);
+                const angle = Math.atan2(dy, dx) + this.shotSpread;
+                projectiles.push(new Projectile(
+                    this.x,
+                    this.y - 12 * this.scale,
+                    Math.cos(angle) * this.shotSpeed,
+                    Math.sin(angle) * this.shotSpeed,
+                    this.color,
+                    true,
+                    5,
+                    false,
+                    { target: player, turnRate: this.shotTurnRate }
+                ));
+                this.shotTarget = null;
+            }
+            return;
+        }
 
         const dx = player.x - this.x;
         const dy = player.y - this.y;
@@ -689,14 +957,20 @@ class Enemy {
             // Lógica de ataque con VELOCIDAD INCREMENTADA
             if (this.attackCooldown <= 0) {
                 if (this.type === 'special' || (this.type === 'boss' && Math.random() < 0.45)) {
-                    // Disparo de plasma apuntado en 2D a alta velocidad
-                    const pSpeed = 9.5;
-                    const pDist = Math.hypot(dx, dy) || 1;
-                    const pVx = (dx / pDist) * pSpeed;
-                    const pVy = (dy / pDist) * pSpeed;
-                    projectiles.push(new Projectile(this.x, this.y - 12 * this.scale, pVx, pVy, this.color, true, 5));
-                    // Velocidad de recarga acelerada
-                    this.attackCooldown = this.type === 'boss' ? 24 : 34;
+                    if (this.type !== 'boss' || this.slamState === 'idle') {
+                        const bossShot = this.type === 'boss';
+                        const speeds = bossShot ? [5.2, 6.1, 7] : [4.2, 5.1, 6];
+                        const turnRates = bossShot ? [0.035, 0.05, 0.065] : [0.05, 0.07, 0.09];
+                        const spreads = bossShot ? [-0.12, 0, 0.12] : [-0.24, 0, 0.24];
+                        const variant = Math.floor(Math.random() * speeds.length);
+
+                        this.shotChargeTimer = bossShot ? 22 : 30;
+                        this.shotTarget = { x: player.x, y: player.y };
+                        this.shotSpeed = speeds[variant];
+                        this.shotTurnRate = turnRates[variant];
+                        this.shotSpread = spreads[Math.floor(Math.random() * spreads.length)];
+                        this.attackCooldown = bossShot ? 88 : 96;
+                    }
                 } else {
                     // Ataque cuerpo a cuerpo rápido y contundente
                     this.isAttacking = true;
@@ -750,6 +1024,30 @@ class Enemy {
 
     draw(ctx) {
         if (this.isDead) return;
+
+        if (this.shotChargeTimer > 0 && this.shotTarget) {
+            const pulse = 0.55 + Math.sin(this.shotChargeTimer * 0.55) * 0.2;
+            ctx.save();
+            ctx.strokeStyle = this.color;
+            ctx.fillStyle = this.color;
+            ctx.globalAlpha = pulse;
+            ctx.shadowColor = this.color;
+            ctx.shadowBlur = 18;
+            ctx.setLineDash([7, 7]);
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(this.x, this.y - 12 * this.scale);
+            ctx.lineTo(this.shotTarget.x, this.shotTarget.y);
+            ctx.stroke();
+            ctx.setLineDash([]);
+            ctx.beginPath();
+            ctx.arc(this.shotTarget.x, this.shotTarget.y, 13 + Math.sin(this.shotChargeTimer) * 3, 0, Math.PI * 2);
+            ctx.stroke();
+            ctx.font = "900 11px 'Orbitron', sans-serif";
+            ctx.textAlign = 'center';
+            ctx.fillText('¡ESQUIVA!', this.shotTarget.x, this.shotTarget.y - 20);
+            ctx.restore();
+        }
 
         // 1. Dibujar retícula de impacto y advertencia en el suelo/plataforma en coordenadas de mundo
         if (this.type === 'boss' && (this.slamState === 'charge' || this.slamState === 'falling')) {

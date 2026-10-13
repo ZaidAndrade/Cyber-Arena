@@ -290,6 +290,346 @@ canvas#gameCanvas {
     text-transform: uppercase;
 }
 
+#menu-overlay {
+    overflow-y: auto;
+    padding: 24px 12px;
+}
+
+.customization-panel {
+    max-width: 520px;
+}
+
+.customization-panel .customization-field {
+    user-select: text;
+    -webkit-user-select: text;
+}
+
+.customization-field {
+    display: grid;
+    gap: 6px;
+    color: #d9e8ff;
+    font-family: var(--font-heading);
+    font-size: 0.88rem;
+    letter-spacing: 1px;
+}
+
+.customization-field input,
+.customization-field select {
+    width: 100%;
+    min-height: 42px;
+    padding: 8px 12px;
+    border: 1px solid rgba(0, 243, 255, 0.55);
+    border-radius: 6px;
+    background: #080e1c;
+    color: #ffffff;
+    font: 600 1rem var(--font-body);
+    user-select: text;
+    -webkit-user-select: text;
+}
+
+.customization-field input:focus,
+.customization-field select:focus {
+    outline: 2px solid var(--neon-cyan);
+    outline-offset: 2px;
+}
+
+.customization-color-control {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.color-swatch,
+.picker-color-preview {
+    flex: 0 0 30px;
+    width: 30px;
+    height: 30px;
+    border: 2px solid rgba(255, 255, 255, 0.8);
+    border-radius: 50%;
+    box-shadow: 0 0 12px currentColor;
+}
+
+.color-value {
+    flex: 1;
+    color: #ffffff;
+    font: 700 0.95rem monospace;
+    letter-spacing: 1px;
+}
+
+.color-picker-trigger {
+    flex: 0 0 auto;
+    padding: 8px 12px;
+    font-size: 0.75rem;
+    letter-spacing: 1px;
+}
+
+.player-effects {
+    display: grid;
+    gap: 12px;
+    padding: 14px;
+    border: 1px solid rgba(176, 0, 255, 0.5);
+    border-radius: 10px;
+    background: rgba(176, 0, 255, 0.06);
+}
+
+.player-effects h3 {
+    color: var(--neon-purple);
+    font: 700 1rem var(--font-heading);
+    letter-spacing: 2px;
+    text-align: center;
+}
+
+.effect-toggle {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    color: #e7e7f2;
+    font-weight: 600;
+}
+
+.effect-toggle input {
+    width: 18px;
+    height: 18px;
+    accent-color: var(--neon-purple);
+}
+
+.effect-toggle-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+}
+
+.effect-range span {
+    display: flex;
+    justify-content: space-between;
+    gap: 10px;
+}
+
+.effect-range input[type="range"] {
+    width: 100%;
+    accent-color: var(--neon-purple);
+}
+
+.effects-note {
+    color: #aeb6ca;
+    font-size: 0.85rem;
+    line-height: 1.4;
+}
+
+.color-picker-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 30;
+    display: grid;
+    place-items: center;
+    padding: 16px;
+    background: rgba(2, 3, 12, 0.82);
+    backdrop-filter: blur(8px);
+}
+
+.color-picker-backdrop.hidden {
+    display: none !important;
+}
+
+.color-picker-dialog {
+    display: grid;
+    gap: 14px;
+    width: min(100%, 460px);
+    max-height: 92vh;
+    overflow-y: auto;
+    padding: 20px;
+    border: 2px solid var(--neon-cyan);
+    border-radius: 14px;
+    background: rgba(9, 11, 24, 0.98);
+    box-shadow: 0 0 35px rgba(0, 243, 255, 0.3);
+}
+
+.color-picker-dialog h3 {
+    color: var(--neon-cyan);
+    font: 700 1.15rem var(--font-heading);
+    letter-spacing: 2px;
+    text-align: center;
+}
+
+.color-picker-workspace {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 34px;
+    gap: 12px;
+    align-items: stretch;
+}
+
+#color-picker-sv {
+    display: block;
+    width: 100%;
+    aspect-ratio: 280 / 190;
+    border: 1px solid rgba(255, 255, 255, 0.4);
+    border-radius: 5px;
+    cursor: crosshair;
+    touch-action: none;
+}
+
+#color-picker-sv:focus-visible {
+    outline: 2px solid #ffffff;
+    outline-offset: 3px;
+}
+
+.hue-control {
+    display: grid;
+    justify-items: center;
+    gap: 6px;
+    color: #d9e8ff;
+    font: 600 0.75rem var(--font-heading);
+}
+
+.hue-control input {
+    width: 24px;
+    height: 190px;
+    margin: 0;
+    accent-color: var(--neon-magenta);
+    writing-mode: vertical-lr;
+    direction: rtl;
+    appearance: none;
+    background: none;
+}
+
+.hue-control input::-webkit-slider-runnable-track {
+    width: 14px;
+    border-radius: 8px;
+    background: linear-gradient(to bottom, #ff0000, #ffff00, #00ff00, #00ffff, #0000ff, #ff00ff, #ff0000);
+}
+
+.hue-control input::-webkit-slider-thumb {
+    width: 22px;
+    height: 22px;
+    margin-left: -4px;
+    border: 2px solid #ffffff;
+    border-radius: 50%;
+    background: var(--neon-cyan);
+    -webkit-appearance: none;
+}
+
+.hue-control input::-moz-range-track {
+    width: 14px;
+    border-radius: 8px;
+    background: linear-gradient(to bottom, #ff0000, #ffff00, #00ff00, #00ffff, #0000ff, #ff00ff, #ff0000);
+}
+
+.hue-control input::-moz-range-thumb {
+    width: 18px;
+    height: 18px;
+    border: 2px solid #ffffff;
+    border-radius: 50%;
+    background: var(--neon-cyan);
+}
+
+.color-picker-values {
+    display: flex;
+    align-items: end;
+    gap: 12px;
+}
+
+.color-picker-values label {
+    display: grid;
+    gap: 5px;
+    color: var(--neon-cyan);
+    font: 700 0.72rem var(--font-heading);
+}
+
+.color-picker-values input {
+    width: 110px;
+    min-height: 38px;
+    padding: 6px 9px;
+    border: 1px solid rgba(0, 243, 255, 0.55);
+    border-radius: 6px;
+    background: #080e1c;
+    color: #ffffff;
+    font: 700 0.9rem monospace;
+    user-select: text;
+    -webkit-user-select: text;
+}
+
+#color-picker-rgb {
+    flex: 1;
+    padding-bottom: 9px;
+    color: #d9e8ff;
+    font: 600 0.78rem monospace;
+}
+
+.customization-preview-wrap {
+    display: grid;
+    justify-items: center;
+    gap: 8px;
+    color: var(--neon-cyan);
+    font: 700 0.8rem var(--font-heading);
+    letter-spacing: 2px;
+}
+
+#customization-preview {
+    width: min(100%, 320px);
+    height: auto;
+    border: 1px solid rgba(0, 243, 255, 0.35);
+    border-radius: 8px;
+}
+
+.customization-message {
+    min-height: 1.4em;
+    color: var(--neon-yellow);
+    font-weight: 700;
+    text-align: center;
+}
+
+.customization-actions {
+    display: flex;
+    gap: 12px;
+}
+
+.customization-actions .btn {
+    flex: 1;
+}
+
+@media (max-width: 540px) {
+    .effect-toggle-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .customization-actions {
+        flex-wrap: wrap;
+    }
+
+    .customization-actions .btn {
+        flex: 1 1 42%;
+    }
+}
+
+@media (max-height: 500px) {
+    .color-picker-dialog {
+        gap: 8px;
+        padding: 12px;
+    }
+
+    .color-picker-dialog h3 {
+        font-size: 0.95rem;
+    }
+
+    #color-picker-sv {
+        max-height: 22vh;
+        aspect-ratio: auto;
+    }
+
+    .hue-control input {
+        height: 22vh;
+    }
+
+    .color-picker-values input {
+        min-height: 32px;
+    }
+
+    .color-picker-dialog .customization-actions .btn {
+        padding: 8px 10px;
+        font-size: 0.75rem;
+    }
+}
+
 /* ==========================================================================
    HUD (HEADS-UP DISPLAY EN JUEGO)
    ========================================================================== */
