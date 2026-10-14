@@ -22,12 +22,20 @@
         <div id="hud" class="hidden">
             <div class="hud-top">
                 <div class="hud-stats">
-                    <!-- Barra de Vida -->
-                    <div class="bar-container">
-                        <div id="hp-bar" class="bar-fill hp-fill"></div>
-                        <div id="hp-text" class="bar-text">❤️ 100 / 100</div>
+                    <div class="bar-section">
+                        <div class="bar-label">P1</div>
+                        <div class="bar-container">
+                            <div id="hp-bar" class="bar-fill hp-fill"></div>
+                            <div id="hp-text" class="bar-text">❤️ P1: 100 / 100</div>
+                        </div>
                     </div>
-                    <!-- Barra de Energía para Habilidades Especiales -->
+                    <div class="bar-section p2-health-section hidden">
+                        <div class="bar-label">P2</div>
+                        <div class="bar-container">
+                            <div id="p2-hp-bar" class="bar-fill hp-fill"></div>
+                            <div id="p2-hp-text" class="bar-text">❤️ P2: 100 / 100</div>
+                        </div>
+                    </div>
                     <div class="bar-container">
                         <div id="energy-bar" class="bar-fill energy-fill" style="width: 0%;"></div>
                         <div id="energy-text" class="bar-text">⚡ ENERGÍA: 0 / 100</div>
@@ -37,7 +45,7 @@
                 <div class="hud-center">
                     <div id="hud-zone" class="zone-badge">CYBER CITY</div>
                     <div id="hud-wave" class="wave-badge">OLEADA 1 / 5</div>
-                    <div id="hud-music" class="hud-music-badge">🎵 I'M STILL STANDING</div>
+                    <div id="hud-music" class="hud-music-badge">🎵 MONTAGEM ALQUIMIA</div>
                 </div>
 
                 <div class="hud-right">
@@ -138,6 +146,10 @@
         <div id="customization-overlay" class="overlay hidden">
             <form id="customization-form" class="panel customization-panel">
                 <div class="panel-title">PERSONALIZA TU STICKMAN</div>
+                <div class="customization-player-select" role="group" aria-label="Seleccionar personaje para personalizar">
+                    <button class="btn active" type="button" data-customization-player="0" aria-pressed="true">JUGADOR 1</button>
+                    <button class="btn" type="button" data-customization-player="1" aria-pressed="false">JUGADOR 2</button>
+                </div>
                 <label class="customization-field">
                     <span>Apodo (2–16 caracteres)</span>
                     <input id="customization-nickname" name="nickname" type="text" maxlength="16" autocomplete="nickname" required>
@@ -342,11 +354,7 @@
             </div>
         </div>
 
-        <!-- Audio de fondo: Elton John - I'm Still Standing -->
-        <audio id="bg-music" loop preload="auto" src="music/still-standing.mp3">
-            <source src="music/still-standing.mp3" type="audio/mpeg">
-            <source src="Elton John - I'm Still Standing (Lyrics).mp3" type="audio/mpeg">
-        </audio>
+        <audio id="bg-music" preload="none"></audio>
     </div>
 
     <!-- Scripts Modulares del Juego -->

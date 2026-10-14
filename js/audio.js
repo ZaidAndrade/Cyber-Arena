@@ -5,6 +5,42 @@
  * ==========================================================================
  */
 
+const MUSIC_TRACKS = {
+    menu: {
+        title: 'MONTAGEM ALQUIMIA',
+        src: 'music/MONTAGEM ALQUIMIA - (Official Music Video) - h6itam.mp3'
+    },
+    combat: {
+        title: 'MONTAGEM XONADA',
+        src: 'music/MONTAGEM XONADA - TheGoodVibe.mp3'
+    },
+    intense: {
+        title: 'MONTAGEM RUGADA',
+        src: 'music/MONTAGEM RUGADA - MAFIA.mp3'
+    },
+    finalBoss: {
+        title: 'NO BATIDÃO',
+        src: 'music/ZXKAI, slxughter -  NO BATIDÃO (Official Audio) - slxughter.mp3'
+    },
+    special: {
+        title: 'MONTAGEM SUPERSONIC',
+        src: 'music/Montagem Supersonic - KHAOS, Jmilton - KHAOS.mp3'
+    },
+    victory: {
+        title: 'PASSO BEM SOLTO',
+        src: 'music/ATLXS - PASSO BEM SOLTO - phonk.mp3'
+    },
+    // Selectable alternatives; no current combat mechanic chooses these automatically.
+    altCombat: {
+        title: 'MONTAGEM BAILÃO',
+        src: 'music/MONTAGEM BAILÃO - TheGoodVibe.mp3'
+    },
+    darkCombat: {
+        title: 'MENTE MÁ',
+        src: 'music/MENTE MÁ - NAKAMA (Official Lyric Video) - Nakama.mp3'
+    }
+};
+
 class SoundFX {
     constructor() {
         this.enabled = true;
@@ -19,6 +55,18 @@ class SoundFX {
         this.bgmPlaying = false;
         this.bgmStep = 0;
         this.tempo = 124; // BPM Cyberpunk
+        this.baseTrackKey = 'menu';
+        this.currentTrackKey = null;
+        this.musicCueKey = null;
+        this.musicCueRemaining = 0;
+        this.musicCueDeadline = 0;
+        this.musicCueTimer = null;
+        this.musicCueReturnTime = 0;
+        this.musicCueReturnTrackKey = null;
+        this.musicFadeTimer = null;
+        this.musicTransitionToken = 0;
+        this.musicVolume = 0.55;
+        this.musicCueDuration = 9000;
 
         // Patrón de bajo Cyberpunk (Frecuencias en Hz)
         // Secuencia en C Menor / Eb / Bb / G:
@@ -74,13 +122,6 @@ class SoundFX {
         this.enabled = !this.enabled;
         if (this.masterGain && this.ctx) {
             this.masterGain.gain.setValueAtTime(this.enabled ? 0.8 : 0.0, this.ctx.currentTime);
-        }
-        const audioElement = document.getElementById('bg-music');
-        if (audioElement) {
-            audioElement.muted = !this.enabled;
-        }
-        if (!this.enabled && this.bgmPlaying) {
-            this.pauseBGM();
         }
         return this.enabled;
     }
@@ -262,42 +303,212 @@ class SoundFX {
     // MÚSICA DE FONDO CYBERPUNK SINTETIZADA EN TIEMPO REAL
     // ==========================================================================
 
+    setMusicState(trackKey) {
+        if (!Object.prototype.hasOwnProperty.call(MUSIC_TRACKS, trackKey)) {
+            throw new Error(`Pista musical desconocida: ${trackKey}`);
+        }
+        this.baseTrackKey = trackKey;
+        if (this.musicCueKey) return;
+        this.startBGM();
+    }
+
+    playMusicCue(trackKey, duration = this.musicCueDuration) {
+        if (!Object.prototype.hasOwnProperty.call(MUSIC_TRACKS, trackKey)) {
+            throw new Error(`Pista musical desconocida: ${trackKey}`);
+        }
+        if (!this.enabled || !this.musicEnabled || this.musicCueKey) return false;
+
+        const audioElement = document.getElementById('bg-music');
+        this.musicCueReturnTrackKey = this.baseTrackKey;
+        this.musicCueReturnTime = audioElement && this.currentTrackKey === this.baseTrackKey
+            ? audioElement.currentTime
+            : 0;
+        this.musicCueKey = trackKey;
+        this.musicCueRemaining = Math.max(0, duration);
+        this.switchMusic(trackKey, false);
+        return true;
+    }
+
     startBGM() {
         if (!this.enabled || !this.musicEnabled) return;
         this.init();
-        if (this.bgmPlaying) return;
+        const trackKey = this.musicCueKey || this.baseTrackKey;
+        this.switchMusic(trackKey, !this.musicCueKey, true);
+        if (this.musicCueKey && !this.musicCueTimer) this.scheduleMusicCueEnd();
+    }
 
-        // Reproducir la canción "Elton John - I'm Still Standing"
+    switchMusic(trackKey, loop = true, resumeCurrent = false, startAt = 0) {
+        const track = MUSIC_TRACKS[trackKey];
+        if (!track) throw new Error(`Pista musical desconocida: ${trackKey}`);
+
         const audioElement = document.getElementById('bg-music');
-        if (audioElement) {
-            audioElement.volume = 0.55;
-            audioElement.muted = !this.enabled;
+        if (!audioElement) {
+            console.error('No se encontró el elemento de audio #bg-music.');
+            return;
+        }
+
+        const trackUrl = new URL(track.src, document.baseURI).href;
+        this.cancelMusicFade();
+        const token = ++this.musicTransitionToken;
+        const sameTrack = this.currentTrackKey === trackKey && audioElement.src === trackUrl;
+        audioElement.loop = loop;
+        audioElement.muted = !this.enabled;
+        audioElement.onended = () => {
+            if (this.musicCueKey) this.endMusicCue();
+        };
+
+        if (sameTrack && !audioElement.paused) {
+            this.bgmPlaying = true;
+            return;
+        }
+
+        const startTrack = () => {
+            if (token !== this.musicTransitionToken) return;
+            audioElement.pause();
+            this.stopSynthBGM();
+
+            if (!sameTrack) {
+                audioElement.src = track.src;
+                if (startAt > 0) {
+                    audioElement.addEventListener('loadedmetadata', () => {
+                        if (token === this.musicTransitionToken && this.currentTrackKey === trackKey) {
+                            audioElement.currentTime = Math.min(startAt, audioElement.duration || startAt);
+                        }
+                    }, { once: true });
+                }
+                audioElement.load();
+                if (startAt <= 0) audioElement.currentTime = 0;
+            } else if (!resumeCurrent) {
+                audioElement.currentTime = 0;
+            } else if (startAt > 0) {
+                audioElement.currentTime = startAt;
+            }
+
+            this.currentTrackKey = trackKey;
+            const musicBadge = document.getElementById('hud-music');
+            if (musicBadge) musicBadge.textContent = `🎵 ${track.title}`;
+            audioElement.volume = 0;
+
             const playPromise = audioElement.play();
-            if (playPromise !== undefined) {
+            if (playPromise && typeof playPromise.then === 'function') {
                 playPromise.then(() => {
+                    if (token !== this.musicTransitionToken) return;
                     this.bgmPlaying = true;
-                }).catch((err) => {
-                    console.log('Fallback a sintetizador:', err);
+                    this.fadeMusicTo(this.musicVolume, 450, token);
+                    if (this.musicCueKey === trackKey) this.scheduleMusicCueEnd();
+                }).catch(error => {
+                    if (token !== this.musicTransitionToken) return;
+                    this.bgmPlaying = false;
+                    console.warn(`No se pudo reproducir "${track.title}"; se usará el sintetizador de respaldo.`, error);
                     this._startSynthBGM();
+                    if (this.musicCueKey === trackKey) this.scheduleMusicCueEnd();
                 });
             } else {
                 this.bgmPlaying = true;
+                this.fadeMusicTo(this.musicVolume, 450, token);
+                if (this.musicCueKey === trackKey) this.scheduleMusicCueEnd();
             }
+        };
+
+        if (sameTrack) {
+            startTrack();
+            return;
+        }
+
+        if (audioElement.paused || audioElement.volume <= 0.01) {
+            startTrack();
+            return;
+        }
+        this.fadeMusicTo(0, 350, token, startTrack);
+    }
+
+    fadeMusicTo(targetVolume, duration, token, onComplete = null) {
+        this.cancelMusicFade();
+        const audioElement = document.getElementById('bg-music');
+        if (!audioElement) return;
+        const startVolume = audioElement.volume;
+        const startTime = performance.now();
+
+        const step = () => {
+            if (token !== this.musicTransitionToken) return;
+            const progress = Math.min(1, (performance.now() - startTime) / duration);
+            audioElement.volume = startVolume + (targetVolume - startVolume) * progress;
+            if (progress >= 1) {
+                this.musicFadeTimer = null;
+                if (onComplete) onComplete();
+                return;
+            }
+            this.musicFadeTimer = setTimeout(step, 32);
+        };
+
+        if (duration <= 0) {
+            audioElement.volume = targetVolume;
+            if (onComplete) onComplete();
         } else {
-            this._startSynthBGM();
+            this.musicFadeTimer = setTimeout(step, 0);
+        }
+    }
+
+    cancelMusicFade() {
+        if (this.musicFadeTimer) {
+            clearTimeout(this.musicFadeTimer);
+            this.musicFadeTimer = null;
+        }
+    }
+
+    scheduleMusicCueEnd() {
+        if (!this.musicCueKey || this.musicCueTimer || !this.bgmPlaying) return;
+        this.musicCueDeadline = Date.now() + this.musicCueRemaining;
+        this.musicCueTimer = setTimeout(() => this.endMusicCue(), this.musicCueRemaining);
+    }
+
+    endMusicCue() {
+        if (!this.musicCueKey) return;
+        const returnTrackKey = this.baseTrackKey;
+        const returnTime = returnTrackKey === this.musicCueReturnTrackKey
+            ? this.musicCueReturnTime
+            : 0;
+        this.clearMusicCue();
+        this.switchMusic(returnTrackKey, true, returnTime > 0, returnTime);
+    }
+
+    clearMusicCue() {
+        this.musicCueKey = null;
+        this.musicCueRemaining = 0;
+        this.musicCueDeadline = 0;
+        this.musicCueReturnTime = 0;
+        this.musicCueReturnTrackKey = null;
+        if (this.musicCueTimer) {
+            clearTimeout(this.musicCueTimer);
+            this.musicCueTimer = null;
         }
     }
 
     pauseBGM() {
         this.bgmPlaying = false;
+        this.musicTransitionToken++;
+        this.cancelMusicFade();
         if (this.bgmTimer) {
             clearTimeout(this.bgmTimer);
             this.bgmTimer = null;
+        }
+        if (this.musicCueTimer) {
+            this.musicCueRemaining = Math.max(0, this.musicCueDeadline - Date.now());
+            clearTimeout(this.musicCueTimer);
+            this.musicCueTimer = null;
         }
         const audioElement = document.getElementById('bg-music');
         if (audioElement && !audioElement.paused) {
             audioElement.pause();
         }
+    }
+
+    stopSynthBGM() {
+        if (this.bgmTimer) {
+            clearTimeout(this.bgmTimer);
+            this.bgmTimer = null;
+        }
+        this.bgmPlaying = false;
     }
 
     _startSynthBGM() {
@@ -387,9 +598,12 @@ class SoundFX {
 
     stopBGM() {
         this.pauseBGM();
+        this.clearMusicCue();
+        this.currentTrackKey = null;
         const audioElement = document.getElementById('bg-music');
         if (audioElement) {
             audioElement.currentTime = 0;
+            audioElement.volume = this.musicVolume;
         }
     }
 }

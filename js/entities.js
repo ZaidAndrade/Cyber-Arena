@@ -4,6 +4,8 @@
  * ==========================================================================
  */
 
+const GAME_UNIT_SPEED = 5.0;
+
 // Catalogo de armas disponibles en la armería
 const WEAPONS = {
     dagger: {
@@ -275,6 +277,8 @@ class Player {
         this.isGrounded = false;
         this.isCrouching = false;
         this.facingRight = true;
+        this.isDead = false;
+        this.isGhost = false;
         this.isAttacking = false;
         this.attackType = null; // 'light', 'heavy', 'special'
         this.attackTimer = 0;
@@ -298,9 +302,27 @@ class Player {
         this.armAngle = 0;
     }
 
-    update(actions, platforms, floorY, arenaWidth) {
+    update(actions, platforms, floorY, arenaWidth, deltaTime = 1) {
+        if (this.isGhost || this.isDead) {
+            this.vx = 0;
+            this.vy = 0;
+            this.isAttacking = false;
+            this.attackTimer = 0;
+            this.attackCooldown = 0;
+            this.hitEnemies.clear();
+            this.isCrouching = false;
+            this.effectFrame += deltaTime;
+            this.updateEffectParticles();
+            if (this.combatFlashTimer > 0) this.combatFlashTimer--;
+            if (this.invulnerableTimer > 0) this.invulnerableTimer--;
+            if (this.effects.enabled && this.effectFrame % 6 === 0) {
+                this.emitEffectBurst('trail', 1, this.facingRight ? -1 : 1);
+            }
+            return;
+        }
+
         const wasGrounded = this.isGrounded;
-        const speed = 5.6;
+        const speed = GAME_UNIT_SPEED;
         this.vx = 0;
 
         // Movimiento horizontal
@@ -313,8 +335,8 @@ class Player {
             this.facingRight = true;
         }
         this.vx += this.knockbackVx;
-        this.knockbackVx *= 0.82;
-        this.effectFrame++;
+        this.knockbackVx *= Math.pow(0.82, deltaTime);
+        this.effectFrame += deltaTime;
 
         if (actions.jump && this.isGrounded) {
             this.vy = -13.0;
@@ -325,9 +347,9 @@ class Player {
         this.isCrouching = actions.crouch;
 
         // Gravedad e integración física
-        this.vy += 0.58;
-        this.x += this.vx;
-        this.y += this.vy;
+        this.vy += 0.58 * deltaTime;
+        this.x += this.vx * deltaTime;
+        this.y += this.vy * deltaTime;
 
         // Límites horizontales de la arena (No salir de pantalla)
         const margin = 25;
@@ -396,7 +418,7 @@ class Player {
 
         // Ciclo de animación de caminar
         if (Math.abs(this.vx) > 0.1 && this.isGrounded) {
-            this.animFrame += 0.22;
+            this.animFrame += 0.22 * deltaTime;
             this.legAngle = Math.sin(this.animFrame) * 0.65;
             this.armAngle = -Math.sin(this.animFrame) * 0.65;
         } else {
@@ -406,7 +428,7 @@ class Player {
     }
 
     attack(type) {
-        if (this.attackCooldown > 0 || this.isAttacking) return false;
+        if (this.isGhost || this.isDead || this.attackCooldown > 0 || this.isAttacking) return false;
 
         const wSpeed = this.weapon ? this.weapon.speed : 1.0;
 
@@ -566,8 +588,14 @@ class Player {
             ctx.scale(1, 0.8);
         }
 
-        // Parpadeo de invulnerabilidad
-        if (this.invulnerableTimer > 0 && Math.floor(Date.now() / 60) % 2 === 0) {
+        if (this.isGhost) {
+            const ghostAlpha = 0.5 + Math.sin(Date.now() / 140) * 0.18;
+            ctx.globalAlpha = ghostAlpha;
+            ctx.strokeStyle = '#d9f7ff';
+            ctx.shadowColor = '#d9f7ff';
+            ctx.shadowBlur = 14;
+            ctx.setLineDash([6, 6]);
+        } else if (this.invulnerableTimer > 0 && Math.floor(Date.now() / 60) % 2 === 0) {
             ctx.globalAlpha = 0.35;
         }
 
@@ -620,6 +648,21 @@ class Player {
         // Renderizado del arma equipada y su estela
         const wColor = this.weapon ? this.weapon.color : cyan;
         const reach = 32 * (this.weapon ? this.weapon.reachMult : 1);
+
+        if (this.isGhost) {
+            ctx.strokeStyle = '#d9f7ff';
+            ctx.shadowColor = '#d9f7ff';
+            ctx.shadowBlur = 8;
+            ctx.beginPath();
+            ctx.arc(0, -22, 11, 0, Math.PI * 2);
+            ctx.stroke();
+            ctx.beginPath();
+            ctx.moveTo(0, -13);
+            ctx.lineTo(0, 10);
+            ctx.stroke();
+            ctx.restore();
+            return;
+        }
 
         if (this.isAttacking) {
             ctx.strokeStyle = wColor;
@@ -700,21 +743,23 @@ class Enemy {
         this.shotTurnRate = 0;
         this.shotSpread = 0;
 
-        // Configuración calibrada de enemigos y jefes con mayor dinamismo
+        this.speed = GAME_UNIT_SPEED;
+
+        // Estadísticas por tipo; la velocidad de desplazamiento es uniforme.
         if (type === 'basic') {
-            this.hp = 50; this.maxHp = 50; this.speed = 2.8; this.color = '#ff0055';
+            this.hp = 50; this.maxHp = 50; this.color = '#ff0055';
             this.width = 25; this.scale = 1.0; this.score = 10;
         } else if (type === 'fast') {
-            this.hp = 35; this.maxHp = 35; this.speed = 4.3; this.color = '#ffcc00';
+            this.hp = 35; this.maxHp = 35; this.color = '#ffcc00';
             this.width = 22; this.scale = 0.9; this.score = 10;
         } else if (type === 'heavy') {
-            this.hp = 100; this.maxHp = 100; this.speed = 1.6; this.color = '#b000ff';
+            this.hp = 100; this.maxHp = 100; this.color = '#b000ff';
             this.width = 35; this.scale = 1.25; this.score = 10;
         } else if (type === 'special') {
-            this.hp = 70; this.maxHp = 70; this.speed = 2.4; this.color = '#00ff88';
+            this.hp = 70; this.maxHp = 70; this.color = '#00ff88';
             this.width = 28; this.scale = 1.0; this.score = 10;
         } else if (type === 'boss') {
-            this.hp = 400; this.maxHp = 400; this.speed = 2.8; this.color = '#ff00aa';
+            this.hp = 400; this.maxHp = 400; this.color = '#ff00aa';
             this.width = 50; this.scale = 1.6; this.score = 100; this.phase = 1;
             // Estados avanzados de ataque para Jefes: Salto y caída directa al jugador
             this.slamState = 'idle'; // 'idle', 'charge', 'rising', 'falling', 'recovery'
@@ -734,7 +779,7 @@ class Enemy {
         this.animFrame = Math.random() * 10;
     }
 
-    update(player, projectiles, floorY, arenaWidth, onMeleeDamage, platforms = [], particles = null, onScreenShake = null) {
+    update(player, projectiles, floorY, arenaWidth, onMeleeDamage, platforms = [], particles = null, onScreenShake = null, deltaTime = 1) {
         if (this.isDead) return;
 
         if (this.shotChargeTimer > 0) {
@@ -774,9 +819,6 @@ class Enemy {
             if (ratio <= 0.3) this.phase = 3;
             else if (ratio <= 0.6) this.phase = 2;
             else this.phase = 1;
-
-            if (this.phase === 3) this.speed = 3.6;
-            else if (this.phase === 2) this.speed = 3.1;
 
             // Decaimiento del efecto visual de onda expansiva en el suelo
             if (this.shockwaveRadius > 0) {
@@ -947,7 +989,7 @@ class Enemy {
         if (dist > attackRange || playerOutOfVerticalReach) {
             if (playerOutOfVerticalReach && dist < 50) {
                 // Merodear bajo la plataforma sin congelarse en el suelo base
-                this.vx = Math.sin(this.animFrame * 0.6) * (this.speed * 0.7);
+                this.vx = Math.sin(this.animFrame * 0.6) * this.speed;
             } else {
                 this.vx = this.facingRight ? this.speed : -this.speed;
             }
@@ -1001,9 +1043,9 @@ class Enemy {
         }
 
         // Gravedad y posición
-        this.vy += 0.58;
-        this.x += this.vx;
-        this.y += this.vy;
+        this.vy += 0.58 * deltaTime;
+        this.x += this.vx * deltaTime;
+        this.y += this.vy * deltaTime;
 
         // Límites de pantalla
         const margin = 20;
@@ -1019,7 +1061,7 @@ class Enemy {
             this.vy = 0;
         }
 
-        this.animFrame += 0.20;
+        this.animFrame += 0.20 * deltaTime;
     }
 
     draw(ctx) {

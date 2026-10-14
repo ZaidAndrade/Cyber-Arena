@@ -4,10 +4,38 @@
  * ==========================================================================
  */
 
+const ZONE_SCENES = [
+    { name: 'TOKIO NEÓN', background: 'img/tokyo_neon.png', colors: ['#03040c', '#090e24'], accent: '#00f3ff' },
+    { name: 'PARÍS CIBERNÉTICO', background: 'img/paris_cyber.png', colors: ['#0a0804', '#201205'], accent: '#ffcc00' },
+    { name: 'NUEVA YORK CIBERPUNK', background: 'img/new_york_cyberpunk.png', colors: ['#0a0312', '#1a0826'], accent: '#b000ff' },
+    { name: 'LONDRES DE NEÓN', background: 'img/london_neon.png', colors: ['#120306', '#26040a'], accent: '#ff0055' },
+    { name: 'BERLÍN FUTURISTA', background: 'img/berlin_futuristic.png', colors: ['#02120b', '#062618'], accent: '#00ff88' },
+    { name: 'SEÚL DIGITAL', background: 'img/seoul_digital.png', colors: ['#140500', '#2d0c02'], accent: '#ff5500' },
+    { name: 'CIUDAD DE MÉXICO NEÓN', background: 'img/mexico_city_neon.png', colors: ['#0c0217', '#1f0633'], accent: '#cc00ff' },
+    { name: 'EL CAIRO FUTURO', background: 'img/cairo_future.png', colors: ['#14020a', '#290615'], accent: '#ffea00' }
+];
+
+const ZONE_BACKGROUND_IMAGES = ZONE_SCENES.map(scene => {
+    const image = new Image();
+    image.addEventListener('error', () => {
+        console.error(`No se pudo cargar el fondo de la zona: ${scene.background}`);
+    });
+    image.src = scene.background;
+    return image;
+});
+
 class Game {
     constructor() {
         this.canvas = document.getElementById('gameCanvas');
         this.ctx = this.canvas.getContext('2d');
+
+        this.fixedStepMs = 1000 / 60;
+        this.maxFrameDeltaMs = 100;
+        this.maxUpdatesPerFrame = 5;
+        this.accumulator = 0;
+        this.lastFrameTimestamp = null;
+        this.loopRunning = false;
+        this.animationFrameId = null;
 
         this.width = window.innerWidth;
         this.height = window.innerHeight;
@@ -15,13 +43,16 @@ class Game {
         this.state = 'MENU'; // 'MENU', 'PLAYING', 'PAUSED', 'GAMEOVER', 'VICTORY'
         this.previousState = 'MENU';
 
-        this.currentZone = 1; // 1: Cyber City, 2: Neon Factory, 3: Void District, 4: Core of Darkness
+        this.currentZone = 1; // Zona actual, del 1 al 8.
+        this.activeBackground = ZONE_BACKGROUND_IMAGES[this.currentZone - 1];
         this.currentWave = 1;
         this.maxWaves = 5;
 
         // Carga de datos persistentes desde localStorage
         this.loadProgress();
         this.customization = this.loadCustomization();
+        this.player2Customization = this.loadPlayer2Customization();
+        this.activePlayerIndex = 0;
 
         this.orientationDismissed = false;
 
@@ -95,15 +126,63 @@ class Game {
         p1.accentColor = this.customization.accentColor;
         p1.nickname = this.customization.nickname;
         p1.effects = { ...this.customization.effects };
+
         this.players = [p1];
         if (playerCount === 2) {
             const p2 = new Player(Math.min(this.width - 25, Math.max(this.width - 150, this.width * 0.75)), floorY - 70, 'P2');
-            p2.weapon = equippedWeapon;
+            const p2Config = this.player2Customization || {
+                nickname: 'P2',
+                color: '#ff00aa',
+                accentColor: '#ffffff',
+                weaponId: 'sword',
+                effects: { ...DEFAULT_PLAYER_EFFECTS, color: '#ff00aa' }
+            };
+            p2.weapon = WEAPONS[p2Config.weaponId] || equippedWeapon;
+            p2.color = p2Config.color;
+            p2.accentColor = p2Config.accentColor;
+            p2.nickname = p2Config.nickname;
+            p2.effects = { ...p2Config.effects };
             p2.facingRight = false;
             this.players.push(p2);
         }
         this.playerCount = playerCount;
         this.player = p1;
+    }
+
+    getAlivePlayers() {
+        return this.players.filter(player => player && !player.isGhost && !player.isDead);
+    }
+
+    getActivePlayer() {
+        const alive = this.getAlivePlayers();
+        if (alive.length > 0) return alive[0];
+        const fallback = this.players.find(player => player && !player.isGhost && !player.isDead) || this.players[0];
+        return fallback || this.player || null;
+    }
+
+    revivePlayersForNextZone() {
+        const floorY = this.getFloorY();
+        this.players.forEach((player, index) => {
+            if (!player || (!player.isGhost && !player.isDead)) return;
+            const spawnX = index === 0
+                ? Math.max(25, Math.min(150, this.width * 0.25))
+                : Math.min(this.width - 25, Math.max(this.width - 150, this.width * 0.75));
+            player.x = spawnX;
+            player.y = floorY - 70;
+            player.vx = 0;
+            player.vy = 0;
+            player.knockbackVx = 0;
+            player.hp = player.maxHp;
+            player.energy = 0;
+            player.isGhost = false;
+            player.isDead = false;
+            player.isAttacking = false;
+            player.attackTimer = 0;
+            player.attackCooldown = 0;
+            player.hitEnemies.clear();
+            player.invulnerableTimer = 60;
+            player.facingRight = index === 0;
+        });
     }
 
     /**
@@ -318,6 +397,12 @@ class Game {
         document.getElementById('btn-play-two').onclick = () => { sound.init(); this.startGame(2); };
         document.getElementById('btn-shop').onclick = () => { sound.init(); this.openShop(); };
         document.getElementById('btn-customize').onclick = () => this.openCustomization();
+        playMenuMusic();
+        document.querySelectorAll('[data-customization-player]').forEach(button => {
+            button.addEventListener('click', () => {
+                this.selectCustomizationPlayer(Number(button.dataset.customizationPlayer));
+            });
+        });
         document.getElementById('btn-controls').onclick = () => { sound.init(); this.showOverlay('controls-overlay'); };
         document.getElementById('btn-progress').onclick = () => { sound.init(); this.openProgress(); };
         document.getElementById('btn-reset').onclick = () => { sound.init(); this.resetProgress(); };
@@ -363,22 +448,22 @@ class Game {
             this.openShop();
         };
         document.getElementById('btn-quit').onclick = () => {
-            sound.stopBGM();
             this.showOverlay('menu-overlay');
             this.state = 'MENU';
+            playMenuMusic();
         };
 
         // Reintentos y finalizaciones
         document.getElementById('btn-retry').onclick = () => this.startGame();
         document.getElementById('btn-gameover-menu').onclick = () => {
-            sound.stopBGM();
             this.showOverlay('menu-overlay');
             this.state = 'MENU';
+            playMenuMusic();
         };
         document.getElementById('btn-victory-menu').onclick = () => {
-            sound.stopBGM();
             this.showOverlay('menu-overlay');
             this.state = 'MENU';
+            playMenuMusic();
         };
 
         // Conmutador de Sonido
@@ -386,10 +471,8 @@ class Game {
         soundBtn.onclick = () => {
             sound.init();
             const isEnabled = sound.toggleSound();
+            musicManager.setMuted(!isEnabled);
             this.updateHUD();
-            if (isEnabled && this.state === 'PLAYING') {
-                sound.startBGM();
-            }
         };
 
         this.updateGamepadAssignments();
@@ -495,6 +578,45 @@ class Game {
         }
     }
 
+    loadPlayer2Customization() {
+        const defaults = {
+            nickname: 'P2',
+            color: '#ff00aa',
+            accentColor: '#ffffff',
+            weaponId: 'sword',
+            effects: { ...DEFAULT_PLAYER_EFFECTS, color: '#ff00aa' }
+        };
+
+        try {
+            const saved = JSON.parse(localStorage.getItem('player2Customization') || '{}');
+            const nickname = typeof saved.nickname === 'string' ? saved.nickname.trim() : '';
+            const effects = saved.effects && typeof saved.effects === 'object' ? saved.effects : {};
+            const auraStyles = ['none', 'orbit', 'ring', 'flame'];
+            return {
+                nickname: this.isValidNickname(nickname) ? nickname : defaults.nickname,
+                color: this.isValidHexColor(saved.color) ? saved.color.toLowerCase() : defaults.color,
+                accentColor: this.isValidHexColor(saved.accentColor) ? saved.accentColor.toLowerCase() : defaults.accentColor,
+                weaponId: WEAPONS[saved.weaponId] ? saved.weaponId : defaults.weaponId,
+                effects: {
+                    enabled: typeof effects.enabled === 'boolean' ? effects.enabled : defaults.effects.enabled,
+                    auraStyle: auraStyles.includes(effects.auraStyle) ? effects.auraStyle : defaults.effects.auraStyle,
+                    runTrail: typeof effects.runTrail === 'boolean' ? effects.runTrail : defaults.effects.runTrail,
+                    dashTrail: typeof effects.dashTrail === 'boolean' ? effects.dashTrail : defaults.effects.dashTrail,
+                    jumpLand: typeof effects.jumpLand === 'boolean' ? effects.jumpLand : defaults.effects.jumpLand,
+                    combatFlash: typeof effects.combatFlash === 'boolean' ? effects.combatFlash : defaults.effects.combatFlash,
+                    defeatEnergy: typeof effects.defeatEnergy === 'boolean' ? effects.defeatEnergy : defaults.effects.defeatEnergy,
+                    color: this.isValidHexColor(effects.color) ? effects.color.toLowerCase() : defaults.effects.color,
+                    intensity: this.clampInteger(effects.intensity, 0, 100, defaults.effects.intensity),
+                    density: this.clampInteger(effects.density, 0, 100, defaults.effects.density),
+                    reduced: typeof effects.reduced === 'boolean' ? effects.reduced : defaults.effects.reduced
+                }
+            };
+        } catch (error) {
+            console.warn('No se pudo leer la personalización de P2; se usarán los valores iniciales.', error);
+            return defaults;
+        }
+    }
+
     isValidNickname(nickname) {
         return /^[\p{L}\p{N}_ -]{2,16}$/u.test(nickname);
     }
@@ -508,7 +630,8 @@ class Game {
         return Number.isFinite(number) ? Math.max(min, Math.min(max, Math.round(number))) : fallback;
     }
 
-    openCustomization() {
+    openCustomization(playerIndex = 0) {
+        this.selectCustomizationPlayer(playerIndex);
         const weaponSelect = document.getElementById('customization-weapon');
         weaponSelect.replaceChildren();
         Object.values(WEAPONS).forEach(weapon => {
@@ -521,19 +644,46 @@ class Game {
             weaponSelect.add(option);
         });
 
-        const availableWeapon = this.purchasedWeapons.includes(this.customization.weaponId)
-            ? this.customization.weaponId
+        const playerCustomization = this.getPlayerCustomization(this.activePlayerIndex);
+        const availableWeapon = this.purchasedWeapons.includes(playerCustomization.weaponId)
+            ? playerCustomization.weaponId
             : this.equippedWeapon;
         this.customizationDraft = {
-            ...this.customization,
+            ...playerCustomization,
             weaponId: availableWeapon,
-            effects: { ...this.customization.effects }
+            effects: { ...playerCustomization.effects }
         };
         this.writeCustomizationForm(this.customizationDraft);
         document.getElementById('customization-message').textContent =
             'Los cambios se guardan solo al pulsar Aplicar.';
         this.updateCustomizationPreview();
+        playCustomizeMusic();
         this.showOverlay('customization-overlay');
+    }
+
+    getPlayerCustomization(playerIndex) {
+        if (playerIndex === 0) return this.customization;
+        if (playerIndex === 1) return this.player2Customization;
+        throw new Error(`Jugador de personalización no válido: ${playerIndex}`);
+    }
+
+    selectCustomizationPlayer(playerIndex) {
+        if (playerIndex !== 0 && playerIndex !== 1) {
+            throw new Error(`Jugador de personalización no válido: ${playerIndex}`);
+        }
+        this.activePlayerIndex = playerIndex;
+        const customization = this.getPlayerCustomization(playerIndex);
+        this.customizationDraft = {
+            ...customization,
+            effects: { ...customization.effects }
+        };
+        document.querySelectorAll('[data-customization-player]').forEach(button => {
+            const selected = Number(button.dataset.customizationPlayer) === playerIndex;
+            button.classList.toggle('active', selected);
+            button.setAttribute('aria-pressed', String(selected));
+        });
+        this.writeCustomizationForm(this.customizationDraft);
+        this.updateCustomizationPreview();
     }
 
     writeCustomizationForm(draft) {
@@ -637,18 +787,20 @@ class Game {
         previewPlayer.draw(ctx);
     }
 
-    getCustomizationDefaults() {
+    getCustomizationDefaults(playerIndex = this.activePlayerIndex) {
+        const isPlayer2 = playerIndex === 1;
+        const playerColor = isPlayer2 ? '#ff00aa' : '#00f3ff';
         return {
-            nickname: 'STICK',
-            color: '#00f3ff',
+            nickname: isPlayer2 ? 'P2' : 'STICK',
+            color: playerColor,
             accentColor: '#ffffff',
             weaponId: this.purchasedWeapons.includes(this.equippedWeapon) ? this.equippedWeapon : 'sword',
-            effects: { ...DEFAULT_PLAYER_EFFECTS }
+            effects: { ...DEFAULT_PLAYER_EFFECTS, color: playerColor }
         };
     }
 
     resetCustomizationDraft() {
-        this.customizationDraft = this.getCustomizationDefaults();
+        this.customizationDraft = this.getCustomizationDefaults(this.activePlayerIndex);
         this.writeCustomizationForm(this.customizationDraft);
         document.getElementById('customization-message').textContent =
             'Valores iniciales restaurados. Pulsa Aplicar para guardarlos.';
@@ -660,6 +812,7 @@ class Game {
         document.getElementById('color-picker').classList.add('hidden');
         this.customizationDraft = null;
         this.showOverlay('menu-overlay');
+        playMenuMusic();
     }
 
     colorTargetDefault(target) {
@@ -860,15 +1013,18 @@ class Game {
     }
 
     hsvToHex(hue, saturation, value) {
-        const chroma = value * saturation;
-        const section = hue / 60;
+        const normalizedHue = ((hue % 360) + 360) % 360;
+        const normalizedSaturation = Math.max(0, Math.min(1, saturation));
+        const normalizedValue = Math.max(0, Math.min(1, value));
+        const chroma = normalizedValue * normalizedSaturation;
+        const section = normalizedHue / 60;
         const x = chroma * (1 - Math.abs((section % 2) - 1));
         const [r, g, b] = section < 1 ? [chroma, x, 0] :
             section < 2 ? [x, chroma, 0] :
             section < 3 ? [0, chroma, x] :
             section < 4 ? [0, x, chroma] :
             section < 5 ? [x, 0, chroma] : [chroma, 0, x];
-        const offset = value - chroma;
+        const offset = normalizedValue - chroma;
         return `#${[r, g, b].map(channel =>
             Math.round((channel + offset) * 255).toString(16).padStart(2, '0')
         ).join('')}`;
@@ -898,15 +1054,17 @@ class Game {
             return;
         }
 
+        const storageKey = this.activePlayerIndex === 0 ? 'playerCustomization' : 'player2Customization';
         try {
-            localStorage.setItem('playerCustomization', JSON.stringify(customization));
+            localStorage.setItem(storageKey, JSON.stringify(customization));
         } catch (error) {
             console.error('No se pudo guardar la personalización.', error);
             message.textContent = 'No se pudo guardar. Comprueba el espacio disponible del navegador.';
             return;
         }
 
-        this.customization = customization;
+        if (this.activePlayerIndex === 0) this.customization = customization;
+        else this.player2Customization = customization;
         this.applyCustomizationToPlayers();
         this.customizationDraft = {
             ...customization,
@@ -917,13 +1075,15 @@ class Game {
     }
 
     applyCustomizationToPlayers() {
-        const player = this.players[0];
-        if (!player) return;
-        player.nickname = this.customization.nickname;
-        player.color = this.customization.color;
-        player.accentColor = this.customization.accentColor;
-        player.weapon = WEAPONS[this.customization.weaponId] || WEAPONS.sword;
-        player.effects = { ...this.customization.effects };
+        this.players.forEach(player => {
+            const config = player.playerId === 'P2' ? this.player2Customization : this.customization;
+            if (!config) return;
+            player.nickname = config.nickname;
+            player.color = config.color;
+            player.accentColor = config.accentColor;
+            player.weapon = WEAPONS[config.weaponId] || WEAPONS.sword;
+            player.effects = { ...config.effects };
+        });
     }
 
     /**
@@ -1122,6 +1282,20 @@ class Game {
         }
     }
 
+    setZone(zoneNumber) {
+        if (!Number.isInteger(zoneNumber) || zoneNumber < 1 || zoneNumber > ZONE_SCENES.length) {
+            throw new RangeError(`Zona no válida: ${zoneNumber}. Debe ser un entero entre 1 y ${ZONE_SCENES.length}.`);
+        }
+
+        if (this.currentZone === zoneNumber) return;
+        this.currentZone = zoneNumber;
+        this.activeBackground = ZONE_BACKGROUND_IMAGES[zoneNumber - 1];
+        this.setupZonePlatforms();
+        if (this.state === 'PLAYING') this.syncMusicWithGameState();
+        this.updateHUD();
+        this.draw();
+    }
+
     /**
      * Inicia una nueva partida
      */
@@ -1131,6 +1305,7 @@ class Game {
         this.input.clearAttacks();
         this.teamInvulnerableTimer = 0;
         this.currentZone = 1;
+        this.activeBackground = ZONE_BACKGROUND_IMAGES[this.currentZone - 1];
         this.currentWave = 1;
         this.enemies = [];
         this.projectiles = [];
@@ -1150,7 +1325,7 @@ class Game {
         this.state = 'PLAYING';
         this.previousState = 'PLAYING';
 
-        sound.startBGM();
+        playNormalBattleMusic(this.currentZone);
     }
 
     /**
@@ -1160,7 +1335,7 @@ class Game {
         if (this.state === 'PLAYING') {
             this.state = 'PAUSED';
             this.previousState = 'PAUSED';
-            sound.pauseBGM();
+            musicManager.pause();
             this.showOverlay('pause-overlay', false);
         }
     }
@@ -1174,9 +1349,14 @@ class Game {
             this.showOverlay(null);
             this.state = 'PLAYING';
             this.previousState = 'PLAYING';
-            if (sound.enabled) {
-                sound.startBGM();
-            }
+            musicManager.resume();
+        }
+    }
+
+    syncMusicWithGameState() {
+        if (this.state === 'PLAYING') {
+            if (this.bossActive) playBossBattleMusic(this.currentZone);
+            else playNormalBattleMusic(this.currentZone);
         }
     }
 
@@ -1190,14 +1370,14 @@ class Game {
 
         // Jefes únicos y temáticos para las 8 Zonas
         const bossConfigs = [
-            { name: 'NEON OVERLORD PRECURSOR', hp: 450, color: '#ff00aa', speed: 2.7 }, // Zona 1: Cyber City
-            { name: 'CYBER SENTINEL MK-II',    hp: 550, color: '#00ffcc', speed: 2.8 }, // Zona 2: Neon Factory
-            { name: 'VOID HARVESTER PRIME',    hp: 650, color: '#b000ff', speed: 2.9 }, // Zona 3: Void District
-            { name: 'NEON OVERLORD SUPREME',   hp: 750, color: '#ff0055', speed: 3.0 }, // Zona 4: Core of Darkness
-            { name: 'CHRONOS QUANTUM ARCHON',  hp: 850, color: '#00ff88', speed: 3.1 }, // Zona 5: Quantum Matrix
-            { name: 'INFERNAL CYBORG TITAN',   hp: 980, color: '#ff5500', speed: 3.2 }, // Zona 6: Volcanic Nucleus
-            { name: 'PHANTOM ECLIPSE ARCHON',  hp: 1150, color: '#cc00ff', speed: 3.3 }, // Zona 7: Spectral Abyss
-            { name: 'GOD-CYBORG DESTRUCTOR',   hp: 1400, color: '#ffea00', speed: 3.5 }  // Zona 8: Singularity Apex (Final Boss)
+            { name: 'NEON OVERLORD PRECURSOR', hp: 450, color: '#ff00aa' }, // Tokio
+            { name: 'CYBER SENTINEL MK-II',    hp: 550, color: '#00ffcc' }, // París
+            { name: 'VOID HARVESTER PRIME',    hp: 650, color: '#b000ff' }, // Nueva York
+            { name: 'NEON OVERLORD SUPREME',   hp: 750, color: '#ff0055' }, // Londres
+            { name: 'CHRONOS QUANTUM ARCHON',  hp: 850, color: '#00ff88' }, // Berlín
+            { name: 'INFERNAL CYBORG TITAN',   hp: 980, color: '#ff5500' }, // Seúl
+            { name: 'PHANTOM ECLIPSE ARCHON',  hp: 1150, color: '#cc00ff' }, // Ciudad de México
+            { name: 'GOD-CYBORG DESTRUCTOR',   hp: 1400, color: '#ffea00' }  // El Cairo
         ];
 
         // Distribución equilibrada de oleadas (1 a 4 normales, 5ta es Jefe de Zona)
@@ -1223,6 +1403,7 @@ class Game {
             this.startBoss(cfg);
         }
 
+        this.syncMusicWithGameState();
         this.updateHUD();
     }
 
@@ -1250,6 +1431,8 @@ class Game {
      */
     startBoss(config) {
         this.bossActive = true;
+        playBossBattleMusic(this.currentZone);
+        this.syncMusicWithGameState();
         const floorY = this.getFloorY();
         const bossX = Math.max(120, this.width - Math.min(220, this.width * 0.3));
         const bossScale = 1.6;
@@ -1260,8 +1443,6 @@ class Game {
         boss.hp = config.hp;
         boss.maxHp = config.hp;
         boss.color = config.color;
-        boss.speed = config.speed;
-
         this.enemies.push(boss);
         sound.playBossAlert();
         this.vibrate(40);
@@ -1269,15 +1450,15 @@ class Game {
     }
 
     /**
-     * Mantiene la vida compartida; los ataques normales siguen causando 5 HP.
+     * Inflige daño a un jugador concreto sin compartir su salud con el resto.
      */
     damagePlayer(amount = 5, target = this.player) {
-        if (this.teamInvulnerableTimer > 0 || this.state !== 'PLAYING' || amount <= 0) return;
+        const playerTarget = target || this.player;
+        if (!playerTarget || playerTarget.isGhost || this.teamInvulnerableTimer > 0 || this.state !== 'PLAYING' || amount <= 0) return;
 
-        const actualDamage = Math.min(this.player.hp, amount);
-        this.player.hp = Math.max(0, this.player.hp - actualDamage);
-        this.players.forEach(player => { player.hp = this.player.hp; });
-        target.invulnerableTimer = 34;
+        const actualDamage = Math.min(playerTarget.hp, amount);
+        playerTarget.hp = Math.max(0, playerTarget.hp - actualDamage);
+        playerTarget.invulnerableTimer = 34;
         this.teamInvulnerableTimer = 34; // ~550ms de invulnerabilidad compartida
 
         sound.playDamage();
@@ -1285,16 +1466,30 @@ class Game {
         this.screenShake = 14;
         this.damageFlash = 12;
 
-        this.floatingTexts.push(new FloatingText(target.x, target.y - 32, `-${Math.round(actualDamage)}`, '#ff0055', 24));
+        this.floatingTexts.push(new FloatingText(playerTarget.x, playerTarget.y - 32, `-${Math.round(actualDamage)}`, '#ff0055', 24));
 
         // Empuje ligero
-        target.knockbackVx = target.facingRight ? -7 : 7;
-        target.vy = -3.5;
+        playerTarget.knockbackVx = playerTarget.facingRight ? -7 : 7;
+        playerTarget.vy = -3.5;
 
         this.updateHUD();
 
-        if (this.player.hp <= 0) {
-            this.triggerGameOver();
+        if (playerTarget.hp <= 0) {
+            playerTarget.isDead = true;
+            playerTarget.isGhost = true;
+            playerTarget.hp = 0;
+            playerTarget.isAttacking = false;
+            playerTarget.attackTimer = 0;
+            playerTarget.attackCooldown = 0;
+            playerTarget.hitEnemies.clear();
+            playerTarget.energy = 0;
+            playerTarget.vx = 0;
+            playerTarget.vy = 0;
+
+            const alivePlayers = this.players.filter(player => !player.isGhost && !player.isDead);
+            if (this.playerCount === 1 || alivePlayers.length === 0) {
+                this.triggerGameOver();
+            }
         }
     }
 
@@ -1354,15 +1549,15 @@ class Game {
     /**
      * REGLA OBLIGATORIA DE CURACIÓN: Límite máximo estricto de 100 HP
      */
-    healPlayer(amount, x, y) {
-        if (this.player.hp < 100) {
-            const actualHeal = Math.min(amount, 100 - this.player.hp);
-            this.player.hp = Math.min(100, this.player.hp + amount);
-            this.players.forEach(player => { player.hp = this.player.hp; });
-            sound.playHeal();
-            this.floatingTexts.push(new FloatingText(x, y - 42, `+${actualHeal} ❤️`, '#00ff88', 22));
-            this.updateHUD();
-        }
+    healPlayer(amount, x, y, target = this.player) {
+        const playerTarget = target || this.player;
+        if (!playerTarget || playerTarget.hp >= playerTarget.maxHp) return;
+
+        const actualHeal = Math.min(amount, playerTarget.maxHp - playerTarget.hp);
+        playerTarget.hp = Math.min(playerTarget.maxHp, playerTarget.hp + actualHeal);
+        sound.playHeal();
+        this.floatingTexts.push(new FloatingText(x, y - 42, `+${actualHeal} ❤️`, '#00ff88', 22));
+        this.updateHUD();
     }
 
     /**
@@ -1381,6 +1576,8 @@ class Game {
     checkCombatCollisions() {
         // Ataques de ambos jugadores contra los enemigos
         this.players.forEach(p => {
+            if (p.isGhost || p.isDead) return;
+
             const w = p.weapon || WEAPONS.sword;
             const reach = 44 * w.reachMult;
 
@@ -1408,6 +1605,7 @@ class Game {
                     // Incremento de combo
                     this.combo++;
                     this.comboTimer = 90;
+                    if (this.combo === 8) this.syncMusicWithGameState();
                     sound.playHit();
                     p.triggerCombatFlash();
 
@@ -1495,7 +1693,13 @@ class Game {
             }
 
             if (pr.isHostile) {
-                const target = this.players.reduce((nearest, player) =>
+                const livingPlayers = this.players.filter(player => !player.isGhost && !player.isDead);
+                if (livingPlayers.length === 0) {
+                    pr.active = false;
+                    this.projectiles.splice(i, 1);
+                    continue;
+                }
+                const target = livingPlayers.reduce((nearest, player) =>
                     Math.hypot(pr.x - player.x, pr.y - player.y) <
                     Math.hypot(pr.x - nearest.x, pr.y - nearest.y) ? player : nearest
                 );
@@ -1522,25 +1726,41 @@ class Game {
      * Actualización de la barra de estado (HUD)
      */
     updateHUD() {
+        this.player = this.getActivePlayer() || this.player || this.players[0] || null;
         if (!this.player) return;
 
-        const hpBar = document.getElementById('hp-bar');
-        const hpPercent = Math.max(0, Math.min(100, (this.player.hp / this.player.maxHp) * 100));
-        hpBar.style.width = `${hpPercent}%`;
+        const updateHealthBar = (barId, textId, player, label = 'P1') => {
+            const bar = document.getElementById(barId);
+            const text = document.getElementById(textId);
+            if (!bar || !text || !player) return;
 
-        // Gradiente dinámico de la barra de vida
-        if (hpPercent >= 60) {
-            hpBar.style.background = 'linear-gradient(90deg, #00ff88, #00f3ff)';
-            hpBar.style.boxShadow = '0 0 12px rgba(0, 243, 255, 0.6)';
-        } else if (hpPercent >= 30) {
-            hpBar.style.background = 'linear-gradient(90deg, #ffcc00, #ff8800)';
-            hpBar.style.boxShadow = '0 0 12px rgba(255, 204, 0, 0.6)';
-        } else {
-            hpBar.style.background = 'linear-gradient(90deg, #ff0055, #ff0000)';
-            hpBar.style.boxShadow = '0 0 15px rgba(255, 0, 85, 0.9)';
+            const hpPercent = Math.max(0, Math.min(100, (player.hp / player.maxHp) * 100));
+            bar.style.width = `${hpPercent}%`;
+
+            if (hpPercent >= 60) {
+                bar.style.background = 'linear-gradient(90deg, #00ff88, #00f3ff)';
+                bar.style.boxShadow = '0 0 12px rgba(0, 243, 255, 0.6)';
+            } else if (hpPercent >= 30) {
+                bar.style.background = 'linear-gradient(90deg, #ffcc00, #ff8800)';
+                bar.style.boxShadow = '0 0 12px rgba(255, 204, 0, 0.6)';
+            } else {
+                bar.style.background = 'linear-gradient(90deg, #ff0055, #ff0000)';
+                bar.style.boxShadow = '0 0 15px rgba(255, 0, 85, 0.9)';
+            }
+
+            text.innerText = `❤️ ${label}: ${Math.round(player.hp)} / ${Math.round(player.maxHp)}`;
+        };
+
+        updateHealthBar('hp-bar', 'hp-text', this.player, 'P1');
+
+        const p2 = this.players[1];
+        const p2Section = document.querySelector('.p2-health-section');
+        if (p2Section) {
+            p2Section.classList.toggle('hidden', !p2);
         }
-
-        document.getElementById('hp-text').innerText = `❤️ ${Math.round(this.player.hp)} / 100`;
+        if (p2) {
+            updateHealthBar('p2-hp-bar', 'p2-hp-text', p2, 'P2');
+        }
 
         // Barra de energía
         const energyBar = document.getElementById('energy-bar');
@@ -1557,17 +1777,7 @@ class Game {
 
         // Monedas, Zona y Oleadas
         document.getElementById('hud-coins').innerText = `🪙 ${this.coins}`;
-        const zoneNames = [
-            'CYBER CITY',
-            'NEON FACTORY',
-            'VOID DISTRICT',
-            'CORE OF DARKNESS',
-            'QUANTUM MATRIX',
-            'VOLCANIC NUCLEUS',
-            'SPECTRAL ABYSS',
-            'SINGULARITY APEX'
-        ];
-        const currentZoneTitle = zoneNames[this.currentZone - 1] || `ZONA ${this.currentZone}`;
+        const currentZoneTitle = ZONE_SCENES[this.currentZone - 1]?.name || `ZONA ${this.currentZone}`;
         document.getElementById('hud-zone').innerText = `ZONA ${this.currentZone}: ${currentZoneTitle}`;
         document.getElementById('hud-wave').innerText = this.bossActive 
             ? '⚠ COMBATE DE JEFE' 
@@ -1611,7 +1821,7 @@ class Game {
      */
     triggerGameOver() {
         this.state = 'GAMEOVER';
-        sound.stopBGM();
+        musicManager.stop();
         document.getElementById('hud').classList.add('hidden');
 
         const stats = document.getElementById('gameover-stats');
@@ -1630,7 +1840,7 @@ class Game {
      */
     triggerVictory() {
         this.state = 'VICTORY';
-        sound.stopBGM();
+        musicManager.stop();
         document.getElementById('hud').classList.add('hidden');
 
         const stats = document.getElementById('victory-stats');
@@ -1647,7 +1857,7 @@ class Game {
     /**
      * Ciclo de actualización lógica (Update)
      */
-    update() {
+    update(deltaTime = 1) {
         this.input.pollGamepads();
         if (this.particles.length > 360) this.particles.splice(0, this.particles.length - 360);
         if (this.state !== 'PLAYING') {
@@ -1668,17 +1878,29 @@ class Game {
         // Cada jugador consume únicamente las acciones asignadas a su entrada
         this.players.forEach((player, index) => {
             const playerId = index === 0 ? 'p1' : 'p2';
-            player.update(this.input.getActions(playerId), this.platforms, floorY, this.width);
-            this.input.consumeAttacks(playerId).forEach(type => player.attack(type));
+            if (player.isGhost || player.isDead) {
+                player.update({ moveLeft: false, moveRight: false, jump: false, crouch: false }, this.platforms, floorY, this.width, deltaTime);
+                this.input.consumeAttacks(playerId);
+                return;
+            }
+            player.update(this.input.getActions(playerId), this.platforms, floorY, this.width, deltaTime);
+            this.input.consumeAttacks(playerId).forEach(type => {
+                if (player.attack(type) && type === 'special') {
+                    sound.playSpecial();
+                }
+            });
         });
 
         // Actualizar enemigos
         let allDead = true;
         this.enemies.forEach(e => {
-            const target = this.players.reduce((nearest, player) =>
-                Math.hypot(player.x - e.x, player.y - e.y) <
-                Math.hypot(nearest.x - e.x, nearest.y - e.y) ? player : nearest
-            );
+            const livingPlayers = this.players.filter(player => !player.isGhost && !player.isDead);
+            const target = livingPlayers.length > 0
+                ? livingPlayers.reduce((nearest, player) =>
+                    Math.hypot(player.x - e.x, player.y - e.y) <
+                    Math.hypot(nearest.x - e.x, nearest.y - e.y) ? player : nearest
+                )
+                : { x: this.width / 2, y: floorY - 30 };
             e.update(
                 target,
                 this.projectiles,
@@ -1687,7 +1909,8 @@ class Game {
                 (dmg) => { this.damagePlayer(dmg, target); },
                 this.platforms,
                 this.particles,
-                (shake) => { this.screenShake = shake; }
+                (shake) => { this.screenShake = shake; },
+                deltaTime
             );
             if (!e.isDead) allDead = false;
         });
@@ -1695,17 +1918,16 @@ class Game {
         // Comprobación de final de oleada
         if (allDead && this.enemies.length > 0) {
             if (this.bossActive) {
-                // Jefe Derrotado: Avanzar a siguiente zona (hasta 8 zonas) o ganar el juego
                 if (this.currentZone < 8) {
-                    this.currentZone++;
+                    this.bossActive = false;
+                    this.setZone(this.currentZone + 1);
                     this.currentWave = 1;
-                    this.setupZonePlatforms();
+                    this.revivePlayersForNextZone();
                     this.startWave();
                 } else {
                     this.triggerVictory();
                 }
             } else {
-                // Oleada normal superada
                 this.currentWave++;
                 this.startWave();
             }
@@ -1720,6 +1942,7 @@ class Game {
             if (this.comboTimer <= 0) {
                 this.combo = 0;
                 this.updateHUD();
+                this.syncMusicWithGameState();
             }
         }
 
@@ -1757,23 +1980,17 @@ class Game {
             this.ctx.translate(rx, ry);
         }
 
-        // Fondo degradado temático según la zona (8 Zonas Cyberpunk)
-        const grad = this.ctx.createLinearGradient(0, 0, 0, this.height);
-        const zoneGradients = [
-            ['#03040c', '#090e24'], // Zona 1: Cyber City (Azul Cyber)
-            ['#0a0804', '#201205'], // Zona 2: Neon Factory (Ámbar Industrial)
-            ['#0a0312', '#1a0826'], // Zona 3: Void District (Vacío Púrpura)
-            ['#120306', '#26040a'], // Zona 4: Core of Darkness (Núcleo Carmesí)
-            ['#02120b', '#062618'], // Zona 5: Quantum Matrix (Verde Esmeralda)
-            ['#140500', '#2d0c02'], // Zona 6: Volcanic Nucleus (Naranja Magma)
-            ['#0c0217', '#1f0633'], // Zona 7: Spectral Abyss (Púrpura y Violeta)
-            ['#14020a', '#290615']  // Zona 8: Singularity Apex (Oro & Rubí)
-        ];
-        const colors = zoneGradients[this.currentZone - 1] || zoneGradients[0];
-        grad.addColorStop(0, colors[0]);
-        grad.addColorStop(1, colors[1]);
-        this.ctx.fillStyle = grad;
-        this.ctx.fillRect(0, 0, this.width, this.height);
+        const scene = ZONE_SCENES[this.currentZone - 1] || ZONE_SCENES[0];
+        const background = this.activeBackground;
+        if (background && background.complete && background.naturalWidth > 0) {
+            this.ctx.drawImage(background, 0, 0, this.canvas.width, this.canvas.height);
+        } else {
+            const grad = this.ctx.createLinearGradient(0, 0, 0, this.height);
+            grad.addColorStop(0, scene.colors[0]);
+            grad.addColorStop(1, scene.colors[1]);
+            this.ctx.fillStyle = grad;
+            this.ctx.fillRect(0, 0, this.width, this.height);
+        }
 
         // Cuadrícula cyberpunk animada en el suelo
         const floorY = this.getFloorY();
@@ -1786,33 +2003,8 @@ class Game {
             this.ctx.stroke();
         }
 
-        // Siluetas de rascacielos al fondo
-        this.ctx.fillStyle = 'rgba(5, 8, 18, 0.6)';
-        for (let bx = 0; bx < this.width; bx += 80) {
-            const bHeight = 120 + ((bx * 37) % 180);
-            this.ctx.fillRect(bx, floorY - bHeight, 60, bHeight);
-
-            // Ventanas iluminadas
-            this.ctx.fillStyle = 'rgba(0, 243, 255, 0.12)';
-            for (let wy = floorY - bHeight + 15; wy < floorY - 15; wy += 25) {
-                this.ctx.fillRect(bx + 15, wy, 8, 12);
-                this.ctx.fillRect(bx + 35, wy, 8, 12);
-            }
-            this.ctx.fillStyle = 'rgba(5, 8, 18, 0.6)';
-        }
-
         // Línea Neón del Piso (Específica por Zona)
-        const floorColors = [
-            '#00f3ff', // Zona 1: Cyan Neón
-            '#ffcc00', // Zona 2: Ámbar Neón
-            '#b000ff', // Zona 3: Púrpura Neón
-            '#ff0055', // Zona 4: Carmesí Neón
-            '#00ff88', // Zona 5: Verde Esmeralda Matrix
-            '#ff5500', // Zona 6: Naranja Fuego
-            '#cc00ff', // Zona 7: Violeta Espectral
-            '#ffea00'  // Zona 8: Oro Supernova
-        ];
-        const currentFloorColor = floorColors[this.currentZone - 1] || '#00f3ff';
+        const currentFloorColor = scene.accent;
         this.ctx.strokeStyle = currentFloorColor;
         this.ctx.shadowColor = currentFloorColor;
         this.ctx.shadowBlur = 18;
@@ -1823,11 +2015,7 @@ class Game {
         this.ctx.stroke();
 
         // Renderizado de plataformas flotantes con color temático de zona
-        const platformColors = [
-            '#00f3ff', '#ffcc00', '#b000ff', '#ff0055',
-            '#00ff88', '#ff5500', '#cc00ff', '#ffea00'
-        ];
-        const currentPlatColor = platformColors[this.currentZone - 1] || '#ff00aa';
+        const currentPlatColor = scene.accent;
         this.ctx.strokeStyle = currentPlatColor;
         this.ctx.shadowColor = currentPlatColor;
         this.ctx.shadowBlur = 14;
@@ -1872,18 +2060,197 @@ class Game {
         this.ctx.restore();
     }
 
+    drawZoneLandmark(scene, floorY) {
+        const ctx = this.ctx;
+        const scale = Math.max(0.38, Math.min(1.2, this.width / 1200, this.height / 720));
+        const centerX = this.width / 2;
+        const baseY = floorY - 8;
+        const accent = scene.accent;
+        const glow = (color = accent) => {
+            ctx.strokeStyle = color;
+            ctx.fillStyle = color;
+            ctx.shadowColor = color;
+            ctx.shadowBlur = 18;
+            ctx.lineWidth = Math.max(2, 3 * scale);
+        };
+        const line = (x1, y1, x2, y2) => {
+            ctx.beginPath();
+            ctx.moveTo(x1, y1);
+            ctx.lineTo(x2, y2);
+            ctx.stroke();
+        };
+        const polygon = points => {
+            ctx.beginPath();
+            ctx.moveTo(points[0][0], points[0][1]);
+            points.slice(1).forEach(([x, y]) => ctx.lineTo(x, y));
+            ctx.closePath();
+            ctx.stroke();
+        };
+
+        ctx.save();
+        ctx.translate(centerX, baseY);
+        ctx.scale(scale, scale);
+        glow();
+
+        switch (this.currentZone) {
+            case 1: {
+                // Torre de Tokio y pasos peatonales de Shibuya.
+                const top = -300;
+                polygon([[-112, 0], [-18, top], [18, top], [112, 0]]);
+                [-210, -145, -78].forEach(y => {
+                    const halfWidth = ((-y) / -top) * 18 + 8;
+                    line(-halfWidth, y, halfWidth, y);
+                });
+                line(-82, -78, 82, -210);
+                line(82, -78, -82, -210);
+                for (let x = -300; x <= 300; x += 82) {
+                    ctx.globalAlpha = 0.65;
+                    ctx.fillRect(x, -8, 38, 4);
+                }
+                break;
+            }
+            case 2: {
+                // Torre Eiffel junto al contorno del Arco del Triunfo.
+                polygon([[-120, 0], [-74, -92], [-42, -188], [-15, -278], [15, -278], [42, -188], [74, -92], [120, 0]]);
+                line(-82, -92, 82, -92);
+                line(-48, -188, 48, -188);
+                line(-108, -42, 108, -42);
+                line(-75, -92, 48, -188);
+                line(75, -92, -48, -188);
+                ctx.beginPath();
+                ctx.arc(220, -34, 54, Math.PI, 0);
+                line(166, -34, 274, -34);
+                line(185, -34, 185, 0);
+                line(255, -34, 255, 0);
+                break;
+            }
+            case 3: {
+                // Rascacielos y grandes pantallas de Times Square.
+                const buildings = [
+                    [-310, -230, 90, 230], [-205, -300, 108, 300],
+                    [-75, -205, 104, 205], [55, -270, 110, 270],
+                    [190, -220, 96, 220]
+                ];
+                buildings.forEach(([x, y, width, height], index) => {
+                    ctx.strokeRect(x, y, width, height);
+                    ctx.globalAlpha = 0.22;
+                    ctx.fillRect(x + 8, y + 20, width - 16, Math.min(72, height / 3));
+                    ctx.globalAlpha = 1;
+                    if (index % 2 === 0) line(x + 18, y + 86, x + width - 18, y + 86);
+                });
+                break;
+            }
+            case 4: {
+                // Big Ben y rueda del London Eye.
+                ctx.strokeRect(-205, -258, 92, 258);
+                polygon([[-218, -258], [-159, -310], [-100, -258]]);
+                ctx.beginPath();
+                ctx.arc(-159, -202, 24, 0, Math.PI * 2);
+                ctx.stroke();
+                ctx.beginPath();
+                ctx.arc(170, -120, 108, 0, Math.PI * 2);
+                ctx.stroke();
+                line(170, -228, 170, -12);
+                line(62, -120, 278, -120);
+                line(94, -196, 246, -44);
+                line(94, -44, 246, -196);
+                break;
+            }
+            case 5: {
+                // Puerta de Brandeburgo con columnas y cuadriga.
+                ctx.strokeRect(-170, -170, 340, 170);
+                ctx.strokeRect(-190, -188, 380, 18);
+                for (let x = -130; x <= 130; x += 52) {
+                    ctx.strokeRect(x - 12, -170, 24, 170);
+                }
+                ctx.strokeRect(-206, -16, 412, 16);
+                ctx.beginPath();
+                ctx.arc(0, -208, 16, Math.PI, 0);
+                ctx.stroke();
+                line(-34, -208, 34, -208);
+                break;
+            }
+            case 6: {
+                // Torre N Seoul elevada sobre una colina digital.
+                polygon([[-240, 0], [-170, -36], [-105, -27], [-35, -66], [40, -52], [112, -88], [190, -55], [250, 0]]);
+                line(0, -70, 0, -270);
+                ctx.strokeRect(-42, -198, 84, 28);
+                ctx.strokeRect(-28, -236, 56, 24);
+                polygon([[-16, -236], [-10, -270], [10, -270], [16, -236]]);
+                break;
+            }
+            case 7: {
+                // Columna del Ángel con una figura alada estilizada.
+                ctx.strokeRect(-32, -216, 64, 216);
+                ctx.strokeRect(-52, -226, 104, 14);
+                ctx.strokeRect(-72, -12, 144, 12);
+                line(0, -226, 0, -272);
+                ctx.beginPath();
+                ctx.arc(0, -288, 10, 0, Math.PI * 2);
+                ctx.stroke();
+                polygon([[-5, -278], [-72, -306], [-42, -264], [0, -246], [42, -264], [72, -306], [5, -278]]);
+                break;
+            }
+            case 8: {
+                // Pirámides de Guiza con retícula de energía.
+                polygon([[-300, 0], [-188, -176], [-76, 0]]);
+                polygon([[-84, 0], [74, -236], [232, 0]]);
+                polygon([[194, 0], [282, -128], [370, 0]]);
+                for (let y = -32; y > -220; y -= 38) {
+                    const spread = (Math.abs(y) / 236) * 158;
+                    line(74 - spread, y, 74 + spread, y);
+                }
+                line(-188, -176, -76, 0);
+                line(-188, -176, -300, 0);
+                break;
+            }
+            default:
+                break;
+        }
+
+        ctx.restore();
+    }
+
     /**
      * Bucle de animación continuo (Game Loop)
      */
     loop() {
-        this.update();
-        this.draw();
-        requestAnimationFrame(() => this.loop());
+        if (this.loopRunning) return;
+        this.loopRunning = true;
+        this.lastFrameTimestamp = null;
+        this.accumulator = 0;
+        this.animationFrameId = requestAnimationFrame(timestamp => this.runFrame(timestamp));
+    }
+
+    runFrame(timestamp) {
+        if (!this.loopRunning) return;
+
+        if (this.lastFrameTimestamp === null) {
+            this.lastFrameTimestamp = timestamp;
+        }
+        const elapsed = Math.min(timestamp - this.lastFrameTimestamp, this.maxFrameDeltaMs);
+        this.lastFrameTimestamp = timestamp;
+        this.accumulator = Math.min(
+            this.accumulator + elapsed,
+            this.fixedStepMs * this.maxUpdatesPerFrame
+        );
+
+        let updates = 0;
+        while (this.accumulator + 1e-7 >= this.fixedStepMs && updates < this.maxUpdatesPerFrame) {
+            this.update(this.fixedStepMs / (1000 / 60));
+            this.accumulator = Math.max(0, this.accumulator - this.fixedStepMs);
+            updates++;
+        }
+
+        if (updates > 0) this.draw();
+        this.animationFrameId = requestAnimationFrame(nextTimestamp => this.runFrame(nextTimestamp));
     }
 }
 
 // Inicialización automática tras cargar el DOM
 window.addEventListener('DOMContentLoaded', () => {
     const game = new Game();
+    window.game = game;
+    window.setZone = zoneNumber => game.setZone(zoneNumber);
     game.loop();
 });

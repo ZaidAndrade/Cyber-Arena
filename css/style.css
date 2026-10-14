@@ -299,6 +299,21 @@ canvas#gameCanvas {
     max-width: 520px;
 }
 
+.customization-player-select {
+    display: flex;
+    gap: 10px;
+}
+
+.customization-player-select .btn {
+    flex: 1;
+}
+
+.customization-player-select .btn.active {
+    border-color: var(--neon-purple);
+    color: #ffffff;
+    box-shadow: 0 0 14px rgba(176, 0, 255, 0.45), inset 0 0 10px rgba(176, 0, 255, 0.2);
+}
+
 .customization-panel .customization-field {
     user-select: text;
     -webkit-user-select: text;
@@ -486,8 +501,8 @@ canvas#gameCanvas {
     height: 190px;
     margin: 0;
     accent-color: var(--neon-magenta);
+    direction: ltr;
     writing-mode: vertical-lr;
-    direction: rtl;
     appearance: none;
     background: none;
 }
@@ -660,6 +675,26 @@ canvas#gameCanvas {
     flex-direction: column;
     gap: 10px;
     width: 270px;
+}
+
+.bar-section {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.bar-label {
+    font-family: var(--font-heading);
+    font-size: 0.62rem;
+    font-weight: 700;
+    letter-spacing: 1.6px;
+    color: #dfeaff;
+    text-transform: uppercase;
+    opacity: 0.9;
+}
+
+.p2-health-section.hidden {
+    display: none;
 }
 
 .bar-container {
