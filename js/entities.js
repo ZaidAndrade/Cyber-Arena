@@ -6,49 +6,73 @@
 
 const GAME_UNIT_SPEED = 5.0;
 
-// Catalogo de armas disponibles en la armería
+// El arsenal original conserva sus IDs y estadísticas; la expansión usa IDs propios.
 const WEAPONS = {
     dagger: {
-        id: 'dagger',
-        name: 'DAGGER NEON',
-        price: 750,
-        damageMult: 0.85,
-        reachMult: 0.75,
-        speed: 1.45,
-        color: '#00ffcc',
+        id: 'dagger', name: 'DAGGER NEON', price: 750,
+        damageMult: 0.85, reachMult: 0.75, speed: 1.45,
+        kind: 'melee', damage: 15 * 0.85, reach: 44 * 0.75,
+        cooldown: Math.round(22 / 1.45), windup: 4, activeFrames: 8, recovery: 4,
+        impactRadius: 52 * 0.75, color: '#00ffcc',
         desc: 'Súper rápida, bajo consumo y velocidad de ráfaga.'
     },
     sword: {
-        id: 'sword',
-        name: 'NEON SWORD',
-        price: 1500,
-        damageMult: 1.5,
-        reachMult: 1.35,
-        speed: 1.0,
-        color: '#00f3ff',
+        id: 'sword', name: 'NEON SWORD', price: 1500,
+        damageMult: 1.5, reachMult: 1.35, speed: 1.0,
+        kind: 'melee', damage: 15 * 1.5, reach: 44 * 1.35,
+        cooldown: Math.round(22 / 1.0), windup: 5, activeFrames: 10, recovery: 5,
+        impactRadius: 52 * 1.35, color: '#00f3ff',
         desc: '+50% Daño, +35% Alcance, hoja de plasma equilibrada.'
     },
     plasma: {
-        id: 'plasma',
-        name: 'PLASMA BLADE',
-        price: 3000,
-        damageMult: 2.2,
-        reachMult: 1.6,
-        speed: 1.1,
-        color: '#ff00aa',
+        id: 'plasma', name: 'PLASMA BLADE', price: 3000,
+        damageMult: 2.2, reachMult: 1.6, speed: 1.1,
+        kind: 'melee', damage: 15 * 2.2, reach: 44 * 1.6,
+        cooldown: Math.round(22 / 1.1), windup: 5, activeFrames: 9, recovery: 4,
+        impactRadius: 52 * 1.6, color: '#ff00aa',
         desc: 'Daño devastador con ráfagas y estela de partículas.'
     },
     hammer: {
-        id: 'hammer',
-        name: 'VOID HAMMER',
-        price: 5000,
-        damageMult: 3.5,
-        reachMult: 1.85,
-        speed: 0.65,
-        color: '#b000ff',
+        id: 'hammer', name: 'VOID HAMMER', price: 5000,
+        damageMult: 3.5, reachMult: 1.85, speed: 0.65,
+        kind: 'melee', damage: 15 * 3.5, reach: 44 * 1.85,
+        cooldown: Math.round(22 / 0.65), windup: 9, activeFrames: 11, recovery: 14,
+        impactRadius: 52 * 1.85, color: '#b000ff',
         desc: 'Poder cósmico destructor y onda expansiva colosal.'
+    },
+    whip: {
+        id: 'whip', name: 'LÁTIGO DE NEÓN', price: 1800, damage: 12, damageMult: 0.9,
+        reach: 132, reachMult: 2.2, speed: 0.9, cooldown: 34, windup: 6,
+        activeFrames: 10, recovery: 8, kind: 'whip', expansion: true, color: '#00ffcc',
+        impactRadius: 42,
+        desc: 'Barrido de arco de largo alcance; golpea a varios enemigos.'
+    },
+    blaster: {
+        id: 'blaster', name: 'BLÁSTER DE ENERGÍA', price: 2600, damage: 11, damageMult: 0.85,
+        reach: 560, reachMult: 2.4, speed: 1.0, cooldown: 28, windup: 5,
+        activeFrames: 1, recovery: 6, projectileSpeed: 10, impactRadius: 13,
+        kind: 'projectile', expansion: true, color: '#37e7ff',
+        desc: 'Dispara proyectiles de energía con alcance largo.'
+    },
+    cyberDaggers: {
+        id: 'cyberDaggers', name: 'DAGAS CIBERNÉTICAS', price: 1200, damage: 7, damageMult: 0.55,
+        reach: 48, reachMult: 0.8, speed: 1.9, cooldown: 12, windup: 1,
+        activeFrames: 5, recovery: 4, impactRadius: 24, kind: 'melee', expansion: true, color: '#a7ffec',
+        desc: 'Golpes cuerpo a cuerpo veloces con alcance corto.'
+    },
+    seismicHammer: {
+        id: 'seismicHammer', name: 'MARTILLO SÍSMICO', price: 6200, damage: 24, damageMult: 1.8,
+        reach: 142, reachMult: 1.5, speed: 0.62, cooldown: 68, windup: 18,
+        activeFrames: 1, recovery: 24, impactRadius: 142, kind: 'aoe', expansion: true,
+        color: '#c58cff',
+        desc: 'Golpe pesado telegrafiado con onda sísmica de área.'
     }
 };
+
+function normalizeWeaponId(weaponId) {
+    const migratedId = weaponId === 'daggers' ? 'cyberDaggers' : weaponId;
+    return WEAPONS[migratedId] ? migratedId : 'sword';
+}
 
 const DEFAULT_PLAYER_EFFECTS = {
     enabled: true,
@@ -62,6 +86,69 @@ const DEFAULT_PLAYER_EFFECTS = {
     intensity: 70,
     density: 55,
     reduced: false
+};
+
+const ELEMENTAL_ATTACKS = {
+    fire: {
+        name: 'Fuego',
+        color: '#ff8a1d',
+        accent: '#ffd166',
+        projectileColor: '#ff5a36',
+        particleColor: '#ffbe0b',
+        damage: 12,
+        speed: 6.4,
+        range: 320,
+        cooldown: 90,
+        duration: 26,
+        radius: 52,
+        telegraph: 22,
+        blastRadius: 48
+    },
+    air: {
+        name: 'Aire',
+        color: '#7fe7ff',
+        accent: '#dffaff',
+        projectileColor: '#c9f6ff',
+        particleColor: '#7dd3fc',
+        damage: 10,
+        speed: 7.1,
+        range: 360,
+        cooldown: 100,
+        duration: 34,
+        radius: 60,
+        telegraph: 20,
+        blastRadius: 42
+    },
+    earth: {
+        name: 'Tierra',
+        color: '#d4a373',
+        accent: '#f9d59c',
+        projectileColor: '#b08968',
+        particleColor: '#e9c46a',
+        damage: 14,
+        speed: 5.6,
+        range: 300,
+        cooldown: 110,
+        duration: 28,
+        radius: 72,
+        telegraph: 24,
+        blastRadius: 60
+    },
+    water: {
+        name: 'Agua',
+        color: '#47c3ff',
+        accent: '#b6f3ff',
+        projectileColor: '#4ecdc4',
+        particleColor: '#7be0ff',
+        damage: 11,
+        speed: 6.1,
+        range: 340,
+        cooldown: 95,
+        duration: 30,
+        radius: 64,
+        telegraph: 23,
+        blastRadius: 52
+    }
 };
 
 const MAX_COSMETIC_PARTICLES = 72;
@@ -199,9 +286,14 @@ class Projectile {
         this.guidance = guidance;
         this.speed = Math.hypot(vx, vy);
         this.angle = Math.atan2(vy, vx);
+        this.owner = null;
+        this.rangeRemaining = Infinity;
+        this.hitTargets = new Set();
     }
 
     update(width, floorY = 9999) {
+        const previousX = this.x;
+        const previousY = this.y;
         if (this.guidance && this.guidance.target) {
             const dx = this.guidance.target.x - this.x;
             const dy = this.guidance.target.y + 3 - this.y;
@@ -218,6 +310,10 @@ class Projectile {
 
         this.x += this.vx;
         this.y += this.vy;
+        if (Number.isFinite(this.rangeRemaining)) {
+            this.rangeRemaining -= Math.hypot(this.x - previousX, this.y - previousY);
+            if (this.rangeRemaining <= 0) this.active = false;
+        }
         if (this.x < -60 || this.x > width + 60 || this.y > floorY + 30 || this.y < -150) {
             this.active = false;
         }
@@ -283,11 +379,14 @@ class Player {
         this.attackType = null; // 'light', 'heavy', 'special'
         this.attackTimer = 0;
         this.attackCooldown = 0;
+        this.attackElapsed = 0;
+        this.attackImpactResolved = false;
+        this.attackWeapon = null;
         this.hitEnemies = new Set(); // Evita daño múltiple por frame en un solo swing
 
         this.invulnerableTimer = 0;
         this.animFrame = 0;
-        this.weapon = WEAPONS.sword;
+        this.weapon = WEAPONS.whip;
         this.color = '#00f3ff';
         this.accentColor = '#ffffff';
         this.nickname = '';
@@ -309,6 +408,9 @@ class Player {
             this.isAttacking = false;
             this.attackTimer = 0;
             this.attackCooldown = 0;
+            this.attackElapsed = 0;
+            this.attackImpactResolved = false;
+            this.attackWeapon = null;
             this.hitEnemies.clear();
             this.isCrouching = false;
             this.effectFrame += deltaTime;
@@ -406,6 +508,7 @@ class Player {
         // Temporizador de ataque
         if (this.attackTimer > 0) {
             this.attackTimer--;
+            this.attackElapsed += deltaTime;
             if (this.attackTimer <= 0) {
                 this.isAttacking = false;
                 this.hitEnemies.clear();
@@ -430,7 +533,7 @@ class Player {
     attack(type) {
         if (this.isGhost || this.isDead || this.attackCooldown > 0 || this.isAttacking) return false;
 
-        const wSpeed = this.weapon ? this.weapon.speed : 1.0;
+        const weapon = this.weapon || WEAPONS.whip;
 
         if (type === 'special') {
             if (this.energy < 100) return false;
@@ -447,8 +550,11 @@ class Player {
         this.hitEnemies.clear();
 
         // Duración y enfriamiento calibrados
-        this.attackTimer = Math.round(15 / wSpeed);
-        this.attackCooldown = Math.round(22 / wSpeed);
+        this.attackTimer = weapon.windup + weapon.activeFrames + weapon.recovery;
+        this.attackCooldown = weapon.cooldown;
+        this.attackElapsed = 0;
+        this.attackImpactResolved = false;
+        this.attackWeapon = weapon;
         return true;
     }
 
@@ -646,8 +752,11 @@ class Player {
         ctx.stroke();
 
         // Renderizado del arma equipada y su estela
-        const wColor = this.weapon ? this.weapon.color : cyan;
-        const reach = 32 * (this.weapon ? this.weapon.reachMult : 1);
+        const weapon = this.isAttacking
+            ? (this.attackWeapon || this.weapon || WEAPONS.whip)
+            : (this.weapon || WEAPONS.whip);
+        const wColor = weapon.color;
+        const reach = 32 * weapon.reachMult;
 
         if (this.isGhost) {
             ctx.strokeStyle = '#d9f7ff';
@@ -670,23 +779,51 @@ class Player {
             ctx.shadowBlur = 24;
             ctx.lineWidth = this.attackType === 'heavy' ? 7 : (this.attackType === 'special' ? 9 : 5);
 
-            const swingRatio = this.attackTimer / 15;
-            const slashAngle = swingRatio * Math.PI;
-            const wx = armX + Math.cos(slashAngle) * reach * dir;
-            const wy = armY - Math.sin(slashAngle) * reach;
-
-            // Hoja del arma
-            ctx.beginPath();
-            ctx.moveTo(armX, armY);
-            ctx.lineTo(wx, wy);
-            ctx.stroke();
-
-            // Arco de corte luminoso con estela
-            ctx.fillStyle = wColor;
-            ctx.globalAlpha = 0.35;
-            ctx.beginPath();
-            ctx.arc(armX, armY, reach, -Math.PI / 2, Math.PI / 2, !this.facingRight);
-            ctx.fill();
+            if (weapon.kind === 'whip') {
+                const swingProgress = Math.min(1, this.attackElapsed / Math.max(1, weapon.windup + weapon.activeFrames));
+                ctx.lineWidth = 6;
+                ctx.beginPath();
+                ctx.moveTo(armX, armY);
+                ctx.quadraticCurveTo(
+                    weapon.reach * 0.46 * dir,
+                    -42 - Math.sin(swingProgress * Math.PI) * 34,
+                    weapon.reach * dir,
+                    5
+                );
+                ctx.stroke();
+                ctx.globalAlpha = 0.4;
+                ctx.lineWidth = 15;
+                ctx.stroke();
+            } else if (weapon.kind === 'projectile') {
+                ctx.beginPath();
+                ctx.moveTo(armX, armY);
+                ctx.lineTo(armX + 24 * dir, armY);
+                ctx.lineTo(armX + 33 * dir, armY - 5);
+                ctx.stroke();
+            } else if (weapon.kind === 'aoe') {
+                ctx.beginPath();
+                ctx.moveTo(armX, armY);
+                ctx.lineTo(armX + 20 * dir, armY + 17);
+                ctx.lineTo(armX + 28 * dir, armY + 8);
+                ctx.stroke();
+                if (this.attackElapsed < weapon.windup) {
+                    ctx.globalAlpha = 0.55;
+                    ctx.beginPath();
+                    ctx.ellipse(0, 27, weapon.impactRadius * 0.55, 13, 0, 0, Math.PI * 2);
+                    ctx.stroke();
+                }
+            } else {
+                const swingProgress = Math.min(1, this.attackElapsed / Math.max(1, weapon.windup + weapon.activeFrames));
+                const slashAngle = (1 - swingProgress) * Math.PI;
+                const wx = armX + Math.cos(slashAngle) * reach * dir;
+                const wy = armY - Math.sin(slashAngle) * reach;
+                ctx.beginPath();
+                ctx.moveTo(armX, armY);
+                ctx.lineTo(wx, wy);
+                ctx.moveTo(armX, armY + 2);
+                ctx.lineTo(wx * 0.82, wy + 7);
+                ctx.stroke();
+            }
 
             // Onda de choque para ataque especial
             if (this.attackType === 'special') {
@@ -697,15 +834,35 @@ class Player {
                 ctx.stroke();
             }
         } else {
-            // Posición de guardia / reposo del arma
             ctx.strokeStyle = wColor;
             ctx.shadowColor = wColor;
             ctx.shadowBlur = 12;
             ctx.lineWidth = 3.5;
-            ctx.beginPath();
-            ctx.moveTo(armX, armY);
-            ctx.lineTo(armX + 14 * dir, armY + 12);
-            ctx.stroke();
+            if (weapon.kind === 'whip') {
+                ctx.beginPath();
+                ctx.moveTo(armX, armY);
+                ctx.quadraticCurveTo(armX + 13 * dir, armY + 14, armX + 25 * dir, armY + 9);
+                ctx.stroke();
+            } else if (weapon.kind === 'projectile') {
+                ctx.strokeRect(armX + 2 * dir, armY - 5, 20 * dir, 10);
+                ctx.beginPath();
+                ctx.moveTo(armX + 20 * dir, armY);
+                ctx.lineTo(armX + 28 * dir, armY);
+                ctx.stroke();
+            } else if (weapon.kind === 'aoe') {
+                ctx.beginPath();
+                ctx.moveTo(armX, armY);
+                ctx.lineTo(armX + 13 * dir, armY + 9);
+                ctx.stroke();
+                ctx.strokeRect(armX + 8 * dir, armY + 5, 12 * dir, 12);
+            } else {
+                ctx.beginPath();
+                ctx.moveTo(armX, armY);
+                ctx.lineTo(armX + 14 * dir, armY + 12);
+                ctx.moveTo(armX, armY + 3);
+                ctx.lineTo(armX + 11 * dir, armY + 17);
+                ctx.stroke();
+            }
         }
 
         ctx.restore();
@@ -731,6 +888,7 @@ class Enemy {
         this.type = type; // 'basic', 'fast', 'heavy', 'special', 'boss'
         this.vx = 0;
         this.vy = 0;
+        this.knockbackVx = 0;
         this.isDead = false;
         this.deathExplosionTriggered = false;
         this.facingRight = true;
@@ -761,6 +919,10 @@ class Enemy {
         } else if (type === 'boss') {
             this.hp = 400; this.maxHp = 400; this.color = '#ff00aa';
             this.width = 50; this.scale = 1.6; this.score = 100; this.phase = 1;
+            this.element = 'fire';
+            this.secondaryElement = null;
+            this.accentColor = this.color;
+            this.elementalProfile = ELEMENTAL_ATTACKS[this.element] || ELEMENTAL_ATTACKS.fire;
             // Estados avanzados de ataque para Jefes: Salto y caída directa al jugador
             this.slamState = 'idle'; // 'idle', 'charge', 'rising', 'falling', 'recovery'
             this.slamTimer = 0;
@@ -820,6 +982,10 @@ class Enemy {
             else if (ratio <= 0.6) this.phase = 2;
             else this.phase = 1;
 
+            const elemental = this.elementalProfile || ELEMENTAL_ATTACKS.fire;
+            const projectileColor = elemental.projectileColor || this.color;
+            const bossDamage = elemental.damage || 5;
+
             // Decaimiento del efecto visual de onda expansiva en el suelo
             if (this.shockwaveRadius > 0) {
                 this.shockwaveRadius += 8.5;
@@ -838,11 +1004,11 @@ class Enemy {
 
                 // Proyectil que cae verticalmente desde el cielo apuntado al jugador
                 const mX = player.x + (Math.random() - 0.5) * 30;
-                projectiles.push(new Projectile(mX, -30, (Math.random() - 0.5) * 1.5, 10, '#ff0055', true, 5, true));
+                projectiles.push(new Projectile(mX, -30, (Math.random() - 0.5) * 1.5, 10, projectileColor, true, bossDamage, true));
 
                 if (this.phase >= 2) {
                     setTimeout(() => {
-                        projectiles.push(new Projectile(player.x, -30, 0, 10.5, '#ff0055', true, 5, true));
+                        projectiles.push(new Projectile(player.x, -30, 0, 10.5, projectileColor, true, bossDamage, true));
                     }, 200);
                 }
             }
@@ -1044,7 +1210,8 @@ class Enemy {
 
         // Gravedad y posición
         this.vy += 0.58 * deltaTime;
-        this.x += this.vx * deltaTime;
+        this.x += (this.vx + this.knockbackVx) * deltaTime;
+        this.knockbackVx *= Math.pow(0.78, deltaTime);
         this.y += this.vy * deltaTime;
 
         // Límites de pantalla

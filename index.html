@@ -9,7 +9,7 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="theme-color" content="#03030a">
     <title>NEON STICK: CYBER ARENA</title>
-    <meta name="description" content="Juego de acción y combate Cyberpunk Stickman en 2D con efectos neón, múltiples armas y combates contra jefes en 8 zonas adaptado para PC y Celular.">
+    <meta name="description" content="Juego de acción y combate Cyberpunk Stickman en 2D con efectos neón, múltiples armas y combates contra jefes en 11 zonas adaptado para PC y Celular.">
     <link rel="stylesheet" href="css/style.css">
 </head>
 
@@ -36,6 +36,22 @@
                             <div id="p2-hp-text" class="bar-text">❤️ P2: 100 / 100</div>
                         </div>
                     </div>
+                    <div class="weapon-selectors">
+                        <div class="weapon-select-row">
+                            <label for="p1-weapon-select">P1 ARMA</label>
+                            <select id="p1-weapon-select" aria-label="Arma de P1">
+                                <option value="sword">NEON SWORD</option>
+                            </select>
+                            <button id="p1-weapon-next" type="button" aria-label="Cambiar arma de P1">↻</button>
+                        </div>
+                        <div id="p2-weapon-section" class="weapon-select-row p2-weapon-section hidden">
+                            <label for="p2-weapon-select">P2 ARMA</label>
+                            <select id="p2-weapon-select" aria-label="Arma de P2">
+                                <option value="sword">NEON SWORD</option>
+                            </select>
+                            <button id="p2-weapon-next" type="button" aria-label="Cambiar arma de P2">↻</button>
+                        </div>
+                    </div>
                     <div class="bar-container">
                         <div id="energy-bar" class="bar-fill energy-fill" style="width: 0%;"></div>
                         <div id="energy-text" class="bar-text">⚡ ENERGÍA: 0 / 100</div>
@@ -49,7 +65,8 @@
                 </div>
 
                 <div class="hud-right">
-                    <div id="hud-coins" class="coins-display">🪙 0</div>
+                    <div id="hud-coins" class="coins-display">P1 🪙 0</div>
+                    <div id="hud-p2-coins" class="coins-display hidden">P2 🪙 0</div>
                     <div class="hud-buttons-row">
                         <button id="btn-fullscreen-hud" class="hud-btn" title="Pantalla Completa" aria-label="Pantalla Completa">⛶</button>
                         <button id="btn-sound-toggle" class="hud-btn" title="Alternar Sonido y Música" aria-label="Sonido">🔊</button>
@@ -132,6 +149,12 @@
             <div class="panel">
                 <div class="panel-title">NEON ARMORY</div>
                 <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
+                    <label for="shop-player-select">Inventario:
+                        <select id="shop-player-select" aria-label="Jugador de la tienda">
+                            <option value="0">P1</option>
+                            <option value="1">P2</option>
+                        </select>
+                    </label>
                     <div id="shop-coins" class="coins-display">🪙 0</div>
                     <div id="shop-msg" style="color: var(--neon-magenta); font-size:0.95rem; font-weight:bold; font-family: var(--font-heading);"></div>
                 </div>
@@ -266,6 +289,7 @@
                         <p><strong style="color: var(--neon-cyan);">W:</strong> Saltar</p>
                         <p><strong style="color: var(--neon-cyan);">S:</strong> Agacharse (acción secundaria)</p>
                         <p><strong style="color: var(--neon-cyan);">F:</strong> Ataque</p>
+                        <p><strong style="color: var(--neon-cyan);">Q:</strong> Cambiar arma</p>
                         <p><strong style="color: var(--neon-yellow);">Compatibilidad anterior:</strong> Espacio salta; J/K/L mantienen ataque rápido/pesado/especial.</p>
                         <p><strong style="color: var(--neon-yellow);">[P] / [Escape]:</strong> Pausa</p>
                     </div>
@@ -276,6 +300,7 @@
                         <p><strong style="color: var(--neon-cyan);">↑:</strong> Saltar</p>
                         <p><strong style="color: var(--neon-cyan);">↓:</strong> Agacharse (acción secundaria)</p>
                         <p><strong style="color: var(--neon-cyan);">ENTER:</strong> Ataque</p>
+                        <p><strong style="color: var(--neon-cyan);">MAYÚS DERECHO:</strong> Cambiar arma</p>
                     </div>
                     <hr style="border-color: rgba(0,243,255,0.25); margin: 12px 0;">
                     <div style="margin-bottom: 12px;">
@@ -283,6 +308,7 @@
                         <p><strong style="color: var(--neon-cyan);">Stick izquierdo:</strong> Movimiento; arriba salta y abajo se agacha</p>
                         <p><strong style="color: var(--neon-cyan);">A:</strong> Saltar</p>
                         <p><strong style="color: var(--neon-cyan);">B / X / Y:</strong> Ataque básico / pesado / especial</p>
+                        <p><strong style="color: var(--neon-cyan);">LB:</strong> Cambiar arma del jugador asignado</p>
                         <div id="gamepad-assignments" class="gamepad-assignments" aria-live="polite"></div>
                     </div>
                     <hr style="border-color: rgba(0,243,255,0.25); margin: 12px 0;">
@@ -293,6 +319,7 @@
                         <p><strong style="color: var(--neon-cyan);">[⚔️ RÁPIDO]:</strong> Golpe ágil de plasma</p>
                         <p><strong style="color: var(--neon-yellow);">[💥 PESADO]:</strong> Golpe contundente de alto daño</p>
                         <p><strong style="color: var(--neon-pink);">[⚡ ESPECIAL]:</strong> Habilidad definitiva (parpadea al alcanzar 100⚡)</p>
+                        <p><strong style="color: var(--neon-cyan);">[P1 ARMA / P2 ARMA]:</strong> Selección independiente en el HUD</p>
                         <p><strong style="color: var(--neon-green);">[⛶ COMPLETA]:</strong> Expande el juego a pantalla completa sin barras del navegador</p>
                     </div>
                 </div>
@@ -326,7 +353,7 @@
         <!-- PANTALLA: VICTORIA ABSOLUTA -->
         <div id="victory-overlay" class="overlay hidden">
             <div class="neon-title" style="color: var(--neon-green); text-shadow: 0 0 25px var(--neon-green); font-size: 2.8rem;">VICTORIA ABSOLUTA</div>
-            <div class="neon-subtitle" style="color: var(--neon-cyan);">¡HAS CONQUISTADO LAS 8 ZONAS Y VENCIDO A TODOS LOS JEFES!</div>
+            <div class="neon-subtitle" style="color: var(--neon-cyan);">¡HAS CONQUISTADO LAS 11 ZONAS Y VENCIDO A TODOS LOS JEFES!</div>
             <div id="victory-stats">
                 <!-- Rellenado dinámicamente -->
             </div>

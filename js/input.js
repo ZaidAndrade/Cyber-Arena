@@ -15,14 +15,16 @@ class InputManager {
                 Space: ['jump'],
                 KeyJ: ['legacyLight'],
                 KeyK: ['legacyHeavy'],
-                KeyL: ['legacySpecial']
+                KeyL: ['legacySpecial'],
+                KeyQ: ['weaponNext']
             },
             p2: {
                 ArrowLeft: ['moveLeft'],
                 ArrowRight: ['moveRight'],
                 ArrowUp: ['jump'],
                 ArrowDown: ['crouch'],
-                Enter: ['attack']
+                Enter: ['attack'],
+                ShiftRight: ['weaponNext']
             }
         };
         this.sources = {
@@ -30,10 +32,12 @@ class InputManager {
             p2: { keyboard: new Set(), touch: new Set(), gamepad: new Set() }
         };
         this.attackQueues = { p1: [], p2: [] };
+        this.weaponQueues = { p1: 0, p2: 0 };
         this.keyboardActions = { p1: new Map(), p2: new Map() };
         this.connectedGamepads = new Map();
         this.gamepadAssignments = new Map();
         this.gamepadAttackButtons = new Map();
+        this.gamepadWeaponButtons = new Map();
         this.playerCount = 0;
 
         this.handleKeyDown = event => this.onKeyDown(event);
@@ -46,6 +50,7 @@ class InputManager {
     }
 
     onKeyDown(event) {
+        if (event.target instanceof HTMLSelectElement) return;
         if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(event.code)) {
             event.preventDefault();
         }
@@ -64,6 +69,10 @@ class InputManager {
 
             const active = this.keyboardActions[playerId];
             for (const action of actions) {
+                if (action === 'weaponNext') {
+                    if (!event.repeat) this.weaponQueues[playerId]++;
+                    continue;
+                }
                 if (action === 'legacyLight' || action === 'legacyHeavy' || action === 'legacySpecial') {
                     if (!event.repeat) {
                         const type = {
@@ -127,6 +136,7 @@ class InputManager {
             this.connectedGamepads.delete(index);
             this.gamepadAssignments.delete(index);
             this.gamepadAttackButtons.delete(index);
+            this.gamepadWeaponButtons.delete(index);
             assignmentsChanged = true;
         }
 
@@ -153,6 +163,7 @@ class InputManager {
             const vertical = pad.axes[1] || 0;
             const buttonPressed = index => Boolean(pad.buttons[index]?.pressed);
             const pressedAttackButtons = new Set();
+            const pressedWeaponButtons = new Set();
             [
                 [1, 'light'],
                 [2, 'heavy'],
@@ -165,6 +176,13 @@ class InputManager {
                 }
             });
             this.gamepadAttackButtons.set(pad.index, pressedAttackButtons);
+            if (buttonPressed(4)) {
+                pressedWeaponButtons.add(4);
+                if (!this.gamepadWeaponButtons.get(pad.index)?.has(4)) {
+                    this.weaponQueues[playerId]++;
+                }
+            }
+            this.gamepadWeaponButtons.set(pad.index, pressedWeaponButtons);
 
             if (horizontal < -0.35 || buttonPressed(14)) actions.add('moveLeft');
             if (horizontal > 0.35 || buttonPressed(15)) actions.add('moveRight');
@@ -223,6 +241,7 @@ class InputManager {
             this.sources.p2.touch.clear();
             this.sources.p2.gamepad.clear();
             this.attackQueues.p2.length = 0;
+            this.weaponQueues.p2 = 0;
         }
         this.pollGamepads();
     }
@@ -254,9 +273,20 @@ class InputManager {
         return queue.splice(0);
     }
 
+    consumeWeaponChanges(playerId) {
+        if (!(playerId in this.weaponQueues)) {
+            throw new Error(`Jugador de entrada desconocido: ${playerId}`);
+        }
+        const count = this.weaponQueues[playerId];
+        this.weaponQueues[playerId] = 0;
+        return count;
+    }
+
     clearAttacks() {
         this.attackQueues.p1.length = 0;
         this.attackQueues.p2.length = 0;
+        this.weaponQueues.p1 = 0;
+        this.weaponQueues.p2 = 0;
     }
 
     destroy() {

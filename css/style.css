@@ -697,6 +697,62 @@ canvas#gameCanvas {
     display: none;
 }
 
+.weapon-selectors {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    pointer-events: auto;
+}
+
+.weapon-select-row {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    min-height: 25px;
+    padding: 2px 5px;
+    border: 1px solid rgba(0, 243, 255, 0.35);
+    border-radius: 6px;
+    background: rgba(5, 7, 18, 0.78);
+    font-family: var(--font-heading);
+    font-size: 0.58rem;
+}
+
+.weapon-select-row label {
+    color: var(--neon-cyan);
+    font-weight: 700;
+    white-space: nowrap;
+}
+
+.weapon-select-row select,
+.weapon-select-row button {
+    min-width: 0;
+    border: 0;
+    border-radius: 4px;
+    background: rgba(0, 243, 255, 0.1);
+    color: #fff;
+    font: inherit;
+}
+
+.weapon-select-row select {
+    flex: 1;
+    padding: 3px 4px;
+}
+
+.weapon-select-row option {
+    color: #111;
+}
+
+.weapon-select-row button {
+    padding: 2px 7px;
+    color: var(--neon-cyan);
+    font-size: 0.9rem;
+    cursor: pointer;
+}
+
+.p2-weapon-section.hidden {
+    display: none;
+}
+
 .bar-container {
     width: 100%;
     height: 22px;
@@ -815,6 +871,10 @@ canvas#gameCanvas {
     box-shadow: 0 0 10px rgba(255, 204, 0, 0.2);
 }
 
+#hud-p2-coins.hidden {
+    display: none;
+}
+
 .hud-buttons-row {
     display: flex;
     gap: 8px;
@@ -849,7 +909,7 @@ canvas#gameCanvas {
 .combo-counter {
     position: absolute;
     left: 24px;
-    top: 110px;
+    top: 260px;
     font-family: var(--font-heading);
     font-size: 2.2rem;
     font-style: italic;
@@ -1338,6 +1398,17 @@ canvas#gameCanvas {
         gap: 6px;
     }
 
+    .weapon-select-row {
+        min-height: 22px;
+        gap: 3px;
+        padding: 2px 3px;
+        font-size: 0.5rem;
+    }
+
+    .weapon-select-row button {
+        padding: 2px 5px;
+    }
+
     .bar-container {
         height: 17px;
     }
@@ -1507,7 +1578,7 @@ canvas#gameCanvas {
     }
 
     .combo-counter {
-        top: 60px;
+        top: 180px;
         left: 14px;
         font-size: 1.6rem;
     }

@@ -12,7 +12,10 @@ const ZONE_SCENES = [
     { name: 'BERLÍN FUTURISTA', background: 'img/berlin_futuristic.png', colors: ['#02120b', '#062618'], accent: '#00ff88' },
     { name: 'SEÚL DIGITAL', background: 'img/seoul_digital.png', colors: ['#140500', '#2d0c02'], accent: '#ff5500' },
     { name: 'CIUDAD DE MÉXICO NEÓN', background: 'img/mexico_city_neon.png', colors: ['#0c0217', '#1f0633'], accent: '#cc00ff' },
-    { name: 'EL CAIRO FUTURO', background: 'img/cairo_future.png', colors: ['#14020a', '#290615'], accent: '#ffea00' }
+    { name: 'EL CAIRO FUTURO', background: 'img/cairo_future.png', colors: ['#14020a', '#290615'], accent: '#ffea00' },
+    { name: 'DUBÁI CYBERPUNK', background: 'img/dubai_cyberpunk.png', colors: ['#100a00', '#0b2b38'], accent: '#ffb703' },
+    { name: 'RÍO DE JANEIRO NEÓN', background: 'img/rio_neon.png', colors: ['#0a0f1a', '#112d2c'], accent: '#2dd4bf' },
+    { name: 'MACHU PICCHU NEÓN', background: 'img/machu_picchu_neon.png', colors: ['#081310', '#0f2d1f'], accent: '#7ef9d8' }
 ];
 
 const ZONE_BACKGROUND_IMAGES = ZONE_SCENES.map(scene => {
@@ -22,6 +25,17 @@ const ZONE_BACKGROUND_IMAGES = ZONE_SCENES.map(scene => {
     });
     image.src = scene.background;
     return image;
+});
+
+const BOSS_WEAPON_DAMAGE_MULTIPLIERS = Object.freeze({
+    dagger: 1.35,
+    sword: 1.2,
+    plasma: 1.15,
+    hammer: 1.2,
+    whip: 1.2,
+    blaster: 1.25,
+    cyberDaggers: 1.6,
+    seismicHammer: 1.5
 });
 
 class Game {
@@ -43,7 +57,7 @@ class Game {
         this.state = 'MENU'; // 'MENU', 'PLAYING', 'PAUSED', 'GAMEOVER', 'VICTORY'
         this.previousState = 'MENU';
 
-        this.currentZone = 1; // Zona actual, del 1 al 8.
+        this.currentZone = 1; // Zona actual, del 1 al 11.
         this.activeBackground = ZONE_BACKGROUND_IMAGES[this.currentZone - 1];
         this.currentWave = 1;
         this.maxWaves = 5;
@@ -53,6 +67,7 @@ class Game {
         this.customization = this.loadCustomization();
         this.player2Customization = this.loadPlayer2Customization();
         this.activePlayerIndex = 0;
+        this.activeShopPlayerIndex = 0;
 
         this.orientationDismissed = false;
 
@@ -117,11 +132,9 @@ class Game {
 
         const floorY = this.getFloorY();
         const p1 = new Player(Math.max(25, Math.min(150, this.width * 0.25)), floorY - 70, 'P1');
-        const equippedWeapon = WEAPONS[this.equippedWeapon] || WEAPONS.sword;
-        const customizedWeapon = WEAPONS[this.customization.weaponId];
-        p1.weapon = customizedWeapon && this.purchasedWeapons.includes(customizedWeapon.id)
-            ? customizedWeapon
-            : equippedWeapon;
+        const p1Inventory = this.playerProgress[0];
+        const equippedWeapon = WEAPONS[p1Inventory.equippedWeapon] || WEAPONS.sword;
+        p1.weapon = equippedWeapon;
         p1.color = this.customization.color;
         p1.accentColor = this.customization.accentColor;
         p1.nickname = this.customization.nickname;
@@ -134,10 +147,10 @@ class Game {
                 nickname: 'P2',
                 color: '#ff00aa',
                 accentColor: '#ffffff',
-                weaponId: 'sword',
+                weaponId: this.playerProgress[1].equippedWeapon,
                 effects: { ...DEFAULT_PLAYER_EFFECTS, color: '#ff00aa' }
             };
-            p2.weapon = WEAPONS[p2Config.weaponId] || equippedWeapon;
+            p2.weapon = WEAPONS[this.playerProgress[1].equippedWeapon] || equippedWeapon;
             p2.color = p2Config.color;
             p2.accentColor = p2Config.accentColor;
             p2.nickname = p2Config.nickname;
@@ -147,6 +160,62 @@ class Game {
         }
         this.playerCount = playerCount;
         this.player = p1;
+    }
+
+    get coins() {
+        return this.playerProgress?.[0]?.coins || 0;
+    }
+
+    set coins(value) {
+        if (this.playerProgress?.[0]) this.playerProgress[0].coins = Math.max(0, Number(value) || 0);
+    }
+
+    get purchasedWeapons() {
+        return this.playerProgress?.[0]?.purchasedWeapons || [];
+    }
+
+    set purchasedWeapons(value) {
+        if (this.playerProgress?.[0]) this.playerProgress[0].purchasedWeapons = value;
+    }
+
+    get equippedWeapon() {
+        return this.playerProgress?.[0]?.equippedWeapon || 'sword';
+    }
+
+    set equippedWeapon(value) {
+        if (this.playerProgress?.[0]) this.playerProgress[0].equippedWeapon = value;
+    }
+
+    equipPlayerWeapon(playerIndex, weaponId) {
+        const player = this.players[playerIndex];
+        if (!player) return false;
+        const normalizedId = normalizeWeaponId(weaponId);
+        const inventory = this.playerProgress[playerIndex];
+        if (!inventory?.purchasedWeapons.includes(normalizedId)) return false;
+        player.weapon = WEAPONS[normalizedId];
+        inventory.equippedWeapon = normalizedId;
+        if (playerIndex === 0) this.customization.weaponId = normalizedId;
+        else this.player2Customization.weaponId = normalizedId;
+        this.saveProgress();
+        this.updateHUD();
+        return true;
+    }
+
+    cyclePlayerWeapon(playerIndex) {
+        const player = this.players[playerIndex];
+        if (!player) return;
+        const weaponIds = this.playerProgress[playerIndex].purchasedWeapons;
+        if (!weaponIds.length) return;
+        const currentIndex = weaponIds.indexOf(player.weapon?.id);
+        const nextWeaponId = weaponIds[(currentIndex + 1) % weaponIds.length];
+        this.equipPlayerWeapon(playerIndex, nextWeaponId);
+        this.floatingTexts.push(new FloatingText(
+            player.x,
+            player.y - 58,
+            WEAPONS[nextWeaponId].name,
+            WEAPONS[nextWeaponId].color,
+            15
+        ));
     }
 
     getAlivePlayers() {
@@ -179,6 +248,9 @@ class Game {
             player.isAttacking = false;
             player.attackTimer = 0;
             player.attackCooldown = 0;
+            player.attackElapsed = 0;
+            player.attackImpactResolved = false;
+            player.attackWeapon = null;
             player.hitEnemies.clear();
             player.invulnerableTimer = 60;
             player.facingRight = index === 0;
@@ -392,6 +464,21 @@ class Game {
      * Vinculación de botones de la interfaz gráfica
      */
     initUI() {
+        [0, 1].forEach(playerIndex => {
+            const selector = document.getElementById(`p${playerIndex + 1}-weapon-select`);
+            const nextButton = document.getElementById(`p${playerIndex + 1}-weapon-next`);
+            selector.addEventListener('change', () => {
+                this.equipPlayerWeapon(playerIndex, selector.value);
+            });
+            document.getElementById('shop-player-select').addEventListener('change', event => {
+                this.activeShopPlayerIndex = Number(event.target.value);
+                this.openShop(this.activeShopPlayerIndex);
+            });
+            nextButton.addEventListener('click', () => {
+                this.cyclePlayerWeapon(playerIndex);
+            });
+        });
+
         // Menú principal
         document.getElementById('btn-play-single').onclick = () => { sound.init(); this.startGame(1); };
         document.getElementById('btn-play-two').onclick = () => { sound.init(); this.startGame(2); };
@@ -527,13 +614,56 @@ class Game {
      * Carga de datos persistentes del jugador
      */
     loadProgress() {
-        this.coins = parseInt(localStorage.getItem('playerCoins')) || 0;
-        try {
-            this.purchasedWeapons = JSON.parse(localStorage.getItem('purchasedWeapons')) || ['sword'];
-        } catch (e) {
-            this.purchasedWeapons = ['sword'];
-        }
-        this.equippedWeapon = localStorage.getItem('equippedWeapon') || 'sword';
+        const readWeaponList = key => {
+            try {
+                const saved = JSON.parse(localStorage.getItem(key) || 'null');
+                return Array.isArray(saved) ? saved : null;
+            } catch (error) {
+                console.warn(`No se pudo leer el inventario guardado (${key}).`, error);
+                return null;
+            }
+        };
+        const normalizeInventory = (saved, allowExpansion) => {
+            const owned = new Set(['sword']);
+            if (Array.isArray(saved)) {
+                saved.forEach(id => {
+                    const normalizedId = normalizeWeaponId(id);
+                    const weapon = WEAPONS[normalizedId];
+                    if (weapon && (allowExpansion || !weapon.expansion)) owned.add(normalizedId);
+                });
+            }
+            return [...owned];
+        };
+        const readCoins = (key, fallback = 0) => {
+            const saved = localStorage.getItem(key);
+            if (saved === null) return fallback;
+            const value = Number(saved);
+            return Number.isFinite(value) && value >= 0 ? Math.floor(value) : fallback;
+        };
+        const legacyInventory = readWeaponList('purchasedWeapons');
+        const player1Inventory = readWeaponList('player1PurchasedWeapons');
+        const player2Inventory = readWeaponList('player2PurchasedWeapons');
+        const legacyEquipped = normalizeWeaponId(localStorage.getItem('equippedWeapon'));
+        const equippedFor = (key, fallback, inventory) => {
+            const candidate = normalizeWeaponId(localStorage.getItem(key) || fallback);
+            return inventory.includes(candidate) ? candidate : 'sword';
+        };
+        const p1Weapons = normalizeInventory(player1Inventory || legacyInventory || ['sword'], !!player1Inventory);
+        const p2Weapons = normalizeInventory(player2Inventory || ['sword'], !!player2Inventory);
+        const p1Equipped = equippedFor('player1EquippedWeapon', legacyEquipped, p1Weapons);
+        const p2Equipped = equippedFor('player2EquippedWeapon', 'sword', p2Weapons);
+        this.playerProgress = [
+            {
+                coins: readCoins('player1Coins', readCoins('playerCoins')),
+                purchasedWeapons: p1Weapons,
+                equippedWeapon: p1Equipped
+            },
+            {
+                coins: readCoins('player2Coins'),
+                purchasedWeapons: p2Weapons,
+                equippedWeapon: p2Equipped
+            }
+        ];
         this.bestScore = parseInt(localStorage.getItem('bestScore')) || 0;
         this.totalKills = parseInt(localStorage.getItem('totalEnemiesDefeated')) || 0;
         this.totalBosses = parseInt(localStorage.getItem('totalBossesDefeated')) || 0;
@@ -544,7 +674,7 @@ class Game {
             nickname: 'STICK',
             color: '#00f3ff',
             accentColor: '#ffffff',
-            weaponId: 'sword',
+            weaponId: this.equippedWeapon,
             effects: { ...DEFAULT_PLAYER_EFFECTS }
         };
 
@@ -557,7 +687,7 @@ class Game {
                 nickname: this.isValidNickname(nickname) ? nickname : defaults.nickname,
                 color: this.isValidHexColor(saved.color) ? saved.color.toLowerCase() : defaults.color,
                 accentColor: this.isValidHexColor(saved.accentColor) ? saved.accentColor.toLowerCase() : defaults.accentColor,
-                weaponId: WEAPONS[saved.weaponId] ? saved.weaponId : defaults.weaponId,
+                weaponId: normalizeWeaponId(saved.weaponId || defaults.weaponId),
                 effects: {
                     enabled: typeof effects.enabled === 'boolean' ? effects.enabled : defaults.effects.enabled,
                     auraStyle: auraStyles.includes(effects.auraStyle) ? effects.auraStyle : defaults.effects.auraStyle,
@@ -583,7 +713,7 @@ class Game {
             nickname: 'P2',
             color: '#ff00aa',
             accentColor: '#ffffff',
-            weaponId: 'sword',
+            weaponId: this.playerProgress[1].equippedWeapon,
             effects: { ...DEFAULT_PLAYER_EFFECTS, color: '#ff00aa' }
         };
 
@@ -596,7 +726,7 @@ class Game {
                 nickname: this.isValidNickname(nickname) ? nickname : defaults.nickname,
                 color: this.isValidHexColor(saved.color) ? saved.color.toLowerCase() : defaults.color,
                 accentColor: this.isValidHexColor(saved.accentColor) ? saved.accentColor.toLowerCase() : defaults.accentColor,
-                weaponId: WEAPONS[saved.weaponId] ? saved.weaponId : defaults.weaponId,
+                weaponId: normalizeWeaponId(saved.weaponId || defaults.weaponId),
                 effects: {
                     enabled: typeof effects.enabled === 'boolean' ? effects.enabled : defaults.effects.enabled,
                     auraStyle: auraStyles.includes(effects.auraStyle) ? effects.auraStyle : defaults.effects.auraStyle,
@@ -632,10 +762,11 @@ class Game {
 
     openCustomization(playerIndex = 0) {
         this.selectCustomizationPlayer(playerIndex);
+        const inventory = this.playerProgress[this.activePlayerIndex];
         const weaponSelect = document.getElementById('customization-weapon');
         weaponSelect.replaceChildren();
         Object.values(WEAPONS).forEach(weapon => {
-            const isUnlocked = this.purchasedWeapons.includes(weapon.id);
+            const isUnlocked = inventory.purchasedWeapons.includes(weapon.id);
             const option = new Option(
                 `${weapon.name}${isUnlocked ? '' : ' — BLOQUEADA'}`,
                 weapon.id
@@ -645,12 +776,9 @@ class Game {
         });
 
         const playerCustomization = this.getPlayerCustomization(this.activePlayerIndex);
-        const availableWeapon = this.purchasedWeapons.includes(playerCustomization.weaponId)
-            ? playerCustomization.weaponId
-            : this.equippedWeapon;
         this.customizationDraft = {
             ...playerCustomization,
-            weaponId: availableWeapon,
+            weaponId: inventory.equippedWeapon,
             effects: { ...playerCustomization.effects }
         };
         this.writeCustomizationForm(this.customizationDraft);
@@ -743,7 +871,7 @@ class Game {
         previewPlayer.nickname = draft.nickname || 'STICK';
         previewPlayer.color = this.colorPickerTarget === 'color' ? this.colorPickerColor : draft.color;
         previewPlayer.accentColor = this.colorPickerTarget === 'accentColor' ? this.colorPickerColor : draft.accentColor;
-        previewPlayer.weapon = WEAPONS[draft.weaponId] || WEAPONS.sword;
+        previewPlayer.weapon = WEAPONS[normalizeWeaponId(draft.weaponId)] || WEAPONS.whip;
         previewPlayer.effects = {
             ...draft.effects,
             color: this.colorPickerTarget === 'effects.color' ? this.colorPickerColor : draft.effects.color
@@ -794,7 +922,7 @@ class Game {
             nickname: isPlayer2 ? 'P2' : 'STICK',
             color: playerColor,
             accentColor: '#ffffff',
-            weaponId: this.purchasedWeapons.includes(this.equippedWeapon) ? this.equippedWeapon : 'sword',
+            weaponId: this.playerProgress[playerIndex].equippedWeapon,
             effects: { ...DEFAULT_PLAYER_EFFECTS, color: playerColor }
         };
     }
@@ -1042,7 +1170,8 @@ class Game {
             nicknameInput.focus();
             return;
         }
-        if (!WEAPONS[weaponId] || !this.purchasedWeapons.includes(weaponId)) {
+        if (!WEAPONS[weaponId] ||
+            !this.playerProgress[this.activePlayerIndex].purchasedWeapons.includes(weaponId)) {
             message.textContent = 'Desbloquea esa arma en la armería antes de equiparla.';
             return;
         }
@@ -1065,6 +1194,7 @@ class Game {
 
         if (this.activePlayerIndex === 0) this.customization = customization;
         else this.player2Customization = customization;
+        this.equipPlayerWeapon(this.activePlayerIndex, weaponId);
         this.applyCustomizationToPlayers();
         this.customizationDraft = {
             ...customization,
@@ -1081,7 +1211,8 @@ class Game {
             player.nickname = config.nickname;
             player.color = config.color;
             player.accentColor = config.accentColor;
-            player.weapon = WEAPONS[config.weaponId] || WEAPONS.sword;
+            const inventory = this.playerProgress[player.playerId === 'P2' ? 1 : 0];
+            player.weapon = WEAPONS[inventory.equippedWeapon] || WEAPONS.sword;
             player.effects = { ...config.effects };
         });
     }
@@ -1093,6 +1224,12 @@ class Game {
         localStorage.setItem('playerCoins', this.coins);
         localStorage.setItem('purchasedWeapons', JSON.stringify(this.purchasedWeapons));
         localStorage.setItem('equippedWeapon', this.equippedWeapon);
+        this.playerProgress.forEach((progress, index) => {
+            const playerNumber = index + 1;
+            localStorage.setItem(`player${playerNumber}Coins`, progress.coins);
+            localStorage.setItem(`player${playerNumber}PurchasedWeapons`, JSON.stringify(progress.purchasedWeapons));
+            localStorage.setItem(`player${playerNumber}EquippedWeapon`, progress.equippedWeapon);
+        });
         localStorage.setItem('bestScore', this.bestScore);
         localStorage.setItem('totalEnemiesDefeated', this.totalKills);
         localStorage.setItem('totalBossesDefeated', this.totalBosses);
@@ -1107,18 +1244,25 @@ class Game {
             localStorage.removeItem('playerCoins');
             localStorage.removeItem('purchasedWeapons');
             localStorage.removeItem('equippedWeapon');
+            ['player1Coins', 'player1PurchasedWeapons', 'player1EquippedWeapon',
+                'player2Coins', 'player2PurchasedWeapons', 'player2EquippedWeapon']
+                .forEach(key => localStorage.removeItem(key));
             localStorage.removeItem('bestScore');
             localStorage.removeItem('totalEnemiesDefeated');
             localStorage.removeItem('totalBossesDefeated');
 
-            this.coins = 0;
-            this.purchasedWeapons = ['sword'];
-            this.equippedWeapon = 'sword';
+            this.playerProgress = [0, 1].map(() => ({
+                coins: 0,
+                purchasedWeapons: ['sword'],
+                equippedWeapon: 'sword'
+            }));
             this.bestScore = 0;
             this.totalKills = 0;
             this.totalBosses = 0;
 
-            this.players.forEach(player => { player.weapon = WEAPONS.sword; });
+            this.players.forEach((player, index) => {
+                player.weapon = WEAPONS[this.playerProgress[index].equippedWeapon];
+            });
 
             this.saveProgress();
             alert("Progreso reiniciado correctamente.");
@@ -1128,14 +1272,18 @@ class Game {
     /**
      * Apertura de la Tienda de Armas Neón
      */
-    openShop() {
+    openShop(playerIndex = this.activeShopPlayerIndex) {
+        if (playerIndex !== 0 && playerIndex !== 1) throw new Error(`Jugador de tienda no válido: ${playerIndex}`);
+        this.activeShopPlayerIndex = playerIndex;
+        const progress = this.playerProgress[playerIndex];
         const container = document.getElementById('shop-container');
         container.innerHTML = '';
-        document.getElementById('shop-coins').innerText = `🪙 ${this.coins}`;
+        document.getElementById('shop-player-select').value = String(playerIndex);
+        document.getElementById('shop-coins').innerText = `P${playerIndex + 1}: 🪙 ${progress.coins}`;
 
         Object.values(WEAPONS).forEach(w => {
-            const isBought = this.purchasedWeapons.includes(w.id);
-            const isEquipped = this.equippedWeapon === w.id;
+            const isBought = progress.purchasedWeapons.includes(w.id);
+            const isEquipped = (this.players[playerIndex]?.weapon?.id || progress.equippedWeapon) === w.id;
 
             const card = document.createElement('div');
             card.className = `shop-item ${isEquipped ? 'equipped' : ''}`;
@@ -1173,17 +1321,13 @@ class Game {
             card.querySelector('button').onclick = () => {
                 sound.init();
                 if (isBought) {
-                    this.equippedWeapon = w.id;
-                    this.players.forEach(player => { player.weapon = w; });
-                    this.saveProgress();
+                    this.equipPlayerWeapon(playerIndex, w.id);
                     this.openShop();
                 } else {
-                    if (this.coins >= w.price) {
-                        this.coins -= w.price;
-                        this.purchasedWeapons.push(w.id);
-                        this.equippedWeapon = w.id;
-                        this.players.forEach(player => { player.weapon = w; });
-                        this.saveProgress();
+                    if (progress.coins >= w.price) {
+                        progress.coins -= w.price;
+                        progress.purchasedWeapons.push(w.id);
+                        this.equipPlayerWeapon(playerIndex, w.id);
                         sound.playCoin();
                         this.openShop();
                     } else {
@@ -1219,8 +1363,8 @@ class Game {
         stats.innerHTML = `
             <div class="stats-grid">
                 <div class="stat-box">
-                    <div class="stat-box-title">Monedas Actuales</div>
-                    <div class="stat-box-val" style="color: #ffcc00;">${this.coins} 🪙</div>
+                    <div class="stat-box-title">Monedas por jugador</div>
+                    <div class="stat-box-val" style="color: #ffcc00;">P1 ${this.playerProgress[0].coins} / P2 ${this.playerProgress[1].coins} 🪙</div>
                 </div>
                 <div class="stat-box">
                     <div class="stat-box-title">Enemigos Eliminados</div>
@@ -1231,8 +1375,8 @@ class Game {
                     <div class="stat-box-val" style="color: #ff0055;">${this.totalBosses} 👑</div>
                 </div>
                 <div class="stat-box">
-                    <div class="stat-box-title">Arsenal Desbloqueado</div>
-                    <div class="stat-box-val" style="color: #00ff88;">${this.purchasedWeapons.length} / ${Object.keys(WEAPONS).length} 🗡️</div>
+                    <div class="stat-box-title">Arsenal P1 / P2</div>
+                    <div class="stat-box-val" style="color: #00ff88;">${this.playerProgress[0].purchasedWeapons.length} / ${this.playerProgress[1].purchasedWeapons.length} de ${Object.keys(WEAPONS).length} 🗡️</div>
                 </div>
             </div>
         `;
@@ -1368,16 +1512,19 @@ class Game {
         this.projectiles = [];
         this.bossActive = false;
 
-        // Jefes únicos y temáticos para las 8 Zonas
+        // Jefes únicos y temáticos para las 11 Zonas.
         const bossConfigs = [
-            { name: 'NEON OVERLORD PRECURSOR', hp: 450, color: '#ff00aa' }, // Tokio
-            { name: 'CYBER SENTINEL MK-II',    hp: 550, color: '#00ffcc' }, // París
-            { name: 'VOID HARVESTER PRIME',    hp: 650, color: '#b000ff' }, // Nueva York
-            { name: 'NEON OVERLORD SUPREME',   hp: 750, color: '#ff0055' }, // Londres
-            { name: 'CHRONOS QUANTUM ARCHON',  hp: 850, color: '#00ff88' }, // Berlín
-            { name: 'INFERNAL CYBORG TITAN',   hp: 980, color: '#ff5500' }, // Seúl
-            { name: 'PHANTOM ECLIPSE ARCHON',  hp: 1150, color: '#cc00ff' }, // Ciudad de México
-            { name: 'GOD-CYBORG DESTRUCTOR',   hp: 1400, color: '#ffea00' }  // El Cairo
+            { name: 'NEON OVERLORD PRECURSOR', hp: 450, color: '#ff00aa', element: 'fire' }, // Tokio
+            { name: 'CYBER SENTINEL MK-II', hp: 550, color: '#00ffcc', element: 'air' }, // París
+            { name: 'VOID HARVESTER PRIME', hp: 650, color: '#b000ff', element: 'earth' }, // Nueva York
+            { name: 'NEON OVERLORD SUPREME', hp: 750, color: '#ff0055', element: 'water' }, // Londres
+            { name: 'CHRONOS QUANTUM ARCHON', hp: 850, color: '#00ff88', element: 'fire' }, // Berlín
+            { name: 'INFERNAL CYBORG TITAN', hp: 980, color: '#ff5500', element: 'air' }, // Seúl
+            { name: 'PHANTOM ECLIPSE ARCHON', hp: 1150, color: '#cc00ff', element: 'earth' }, // Ciudad de México
+            { name: 'GOD-CYBORG DESTRUCTOR', hp: 1400, color: '#ffea00', element: 'water' }, // El Cairo
+            { name: 'TITAN SOLAR', hp: 1700, color: '#ff8f1f', element: 'fire', accent: '#ffd166' }, // Dubái
+            { name: 'TEMPEST', hp: 1850, color: '#36d1dc', element: 'air', accent: '#c0f5ff' }, // Río
+            { name: 'GUARDIÁN INCA', hp: 2200, color: '#2ec27e', element: 'earth', secondaryElement: 'water', accent: '#f4d35e' } // Machu
         ];
 
         // Distribución equilibrada de oleadas (1 a 4 normales, 5ta es Jefe de Zona)
@@ -1443,6 +1590,10 @@ class Game {
         boss.hp = config.hp;
         boss.maxHp = config.hp;
         boss.color = config.color;
+        boss.element = config.element || 'fire';
+        boss.secondaryElement = config.secondaryElement || null;
+        boss.accentColor = config.accent || config.color;
+        boss.elementalProfile = ELEMENTAL_ATTACKS[boss.element] || ELEMENTAL_ATTACKS.fire;
         this.enemies.push(boss);
         sound.playBossAlert();
         this.vibrate(40);
@@ -1563,162 +1714,232 @@ class Game {
     /**
      * REGLA OBLIGATORIA DE MONEDAS: Acumulación y persistencia
      */
-    addCoins(amount, x, y) {
-        this.coins += amount;
+    addCoins(amount, x, y, player = this.players[0]) {
+        const playerIndex = Math.max(0, this.players.indexOf(player));
+        this.playerProgress[playerIndex].coins += amount;
         sound.playCoin();
-        this.floatingTexts.push(new FloatingText(x, y - 22, `+${amount} 🪙`, '#ffcc00', 20));
+        this.floatingTexts.push(new FloatingText(
+            x, y - 22, `P${playerIndex + 1} +${amount} 🪙`, '#ffcc00', 20
+        ));
+        this.saveProgress();
+    }
+
+    damageEnemyWithWeapon(player, enemy, weapon, damage, hitTargets = player.hitEnemies, attackType = player.attackType) {
+        if (enemy.isDead || hitTargets.has(enemy)) return;
+        hitTargets.add(enemy);
+        const appliedDamage = enemy.type === 'boss'
+            ? damage * (BOSS_WEAPON_DAMAGE_MULTIPLIERS[weapon.id] || 1)
+            : damage;
+        enemy.hp -= appliedDamage;
+        player.energy = Math.min(100, player.energy + 10);
+        this.updateHUD();
+        this.combo++;
+        this.comboTimer = 90;
+        if (this.combo === 8) this.syncMusicWithGameState();
+        sound.playHit();
+        player.triggerCombatFlash();
+        this.floatingTexts.push(new FloatingText(
+            enemy.x,
+            enemy.y - 30,
+            Math.round(appliedDamage).toString(),
+            attackType === 'special' ? '#ffffff' : weapon.color,
+            attackType === 'special' ? 26 : 20
+        ));
+
+        for (let index = 0; index < 7; index++) {
+            this.particles.push(new Particle(
+                enemy.x, enemy.y - 15,
+                (Math.random() - 0.5) * 8, (Math.random() - 0.5) * 8,
+                weapon.color, 3.5, 22
+            ));
+        }
+
+        if (weapon.kind === 'whip' && enemy.type !== 'boss') {
+            enemy.knockbackVx = (player.facingRight ? 1 : -1) * 5;
+        }
+
+        if (enemy.hp > 0 || enemy.isDead) return;
+        enemy.isDead = true;
+        this.totalKills++;
+        for (let index = 0; index < 18; index++) {
+            this.particles.push(new Particle(
+                enemy.x, enemy.y - 20,
+                (Math.random() - 0.5) * 12, (Math.random() - 0.5) * 12,
+                enemy.color, 4, 35
+            ));
+        }
+
+        if (enemy.type === 'boss') {
+            this.totalBosses++;
+            this.addCoins(100, enemy.x, enemy.y, player);
+            this.healPlayer(50, player.x, player.y, player);
+            this.triggerBossDeathExplosion(enemy);
+        } else {
+            this.addCoins(10, enemy.x, enemy.y, player);
+            this.healPlayer(40, player.x, player.y, player);
+        }
+        if (player.effects.enabled && player.effects.defeatEnergy) {
+            player.emitEffectBurst('defeat', Math.round(14 * player.effectDensity()));
+        }
         this.saveProgress();
     }
 
     /**
-     * Detección de colisiones de combate y registro de ataques
+     * Resuelve ataques cuerpo a cuerpo, armas de proyectil y daño de área.
      */
     checkCombatCollisions() {
-        // Ataques de ambos jugadores contra los enemigos
-        this.players.forEach(p => {
-            if (p.isGhost || p.isDead) return;
+        this.players.forEach(player => {
+            if (player.isGhost || player.isDead || !player.isAttacking) return;
+            const weapon = player.attackWeapon || player.weapon || WEAPONS.whip;
+            const multiplier = player.attackType === 'heavy' ? 1.35 :
+                (player.attackType === 'special' ? 2 : 1);
+            const damage = weapon.damage * multiplier;
+            const active = player.attackElapsed >= weapon.windup &&
+                player.attackElapsed < weapon.windup + weapon.activeFrames;
 
-            const w = p.weapon || WEAPONS.sword;
-            const reach = 44 * w.reachMult;
+            if (weapon.kind === 'projectile') {
+                if (!player.attackImpactResolved && player.attackElapsed >= weapon.windup) {
+                    const direction = player.facingRight ? 1 : -1;
+                    const projectile = new Projectile(
+                        player.x + direction * 24,
+                        player.y - 12,
+                        direction * weapon.projectileSpeed,
+                        0,
+                        weapon.color,
+                        false,
+                        damage
+                    );
+                    projectile.owner = player;
+                    projectile.weapon = weapon;
+                    projectile.attackType = player.attackType;
+                    projectile.radius = weapon.impactRadius;
+                    projectile.rangeRemaining = weapon.reach;
+                    this.projectiles.push(projectile);
+                    player.attackImpactResolved = true;
+                }
+                return;
+            }
 
-            if (!p.isAttacking) return;
-            this.enemies.forEach(e => {
-                if (e.isDead || p.hitEnemies.has(e)) return;
-
-                const dx = e.x - p.x;
-                const dy = Math.abs(e.y - p.y);
-                const inDirection = p.facingRight ? dx > 0 : dx < 0;
-                const dist = Math.abs(dx);
-                const maxReachVert = 52 * (w.reachMult || 1.0);
-
-                if (inDirection && dist < reach + e.width && dy < maxReachVert + e.height / 2) {
-                    p.hitEnemies.add(e); // Marca al enemigo como golpeado en este swing
-
-                    let dmg = 15 * w.damageMult;
-                    if (p.attackType === 'heavy') dmg *= 1.8;
-                    if (p.attackType === 'special') dmg *= 3.5;
-
-                    e.hp -= dmg;
-                    p.energy = Math.min(100, p.energy + 10);
-                    this.updateHUD();
-
-                    // Incremento de combo
-                    this.combo++;
-                    this.comboTimer = 90;
-                    if (this.combo === 8) this.syncMusicWithGameState();
-                    sound.playHit();
-                    p.triggerCombatFlash();
-
-                    // Texto de daño
-                    this.floatingTexts.push(new FloatingText(
-                        e.x, e.y - 30,
-                        Math.round(dmg).toString(),
-                        p.attackType === 'special' ? '#ffffff' : w.color,
-                        p.attackType === 'special' ? 26 : 20
-                    ));
-
-                    // Partículas de impacto neón
-                    for (let k = 0; k < 7; k++) {
+            if (weapon.kind === 'aoe') {
+                if (!player.attackImpactResolved && player.attackElapsed >= weapon.windup) {
+                    player.attackImpactResolved = true;
+                    const floorY = this.getFloorY();
+                    const centerX = player.x + (player.facingRight ? 1 : -1) * 18;
+                    this.explosions.push(new ExplosionEffect(centerX, floorY, weapon.impactRadius, weapon.color));
+                    this.screenShake = Math.max(this.screenShake, 9);
+                    for (let index = 0; index < 22; index++) {
                         this.particles.push(new Particle(
-                            e.x, e.y - 15,
-                            (Math.random() - 0.5) * 8, (Math.random() - 0.5) * 8,
-                            w.color, 3.5, 22
+                            centerX, floorY - 2,
+                            (Math.random() - 0.5) * 12, -Math.random() * 7,
+                            weapon.color, 3 + Math.random() * 2, 22
                         ));
                     }
-
-                    // Comprobación de muerte del enemigo
-                    if (e.hp <= 0 && !e.isDead) {
-                        e.isDead = true;
-                        this.totalKills++;
-
-                        // Explosión de partículas al morir
-                        for (let k = 0; k < 18; k++) {
-                            this.particles.push(new Particle(
-                                e.x, e.y - 20,
-                                (Math.random() - 0.5) * 12, (Math.random() - 0.5) * 12,
-                                e.color, 4, 35
-                            ));
+                    this.enemies.forEach(enemy => {
+                        const distanceX = Math.abs(enemy.x - centerX);
+                        const distanceY = Math.abs(enemy.y + enemy.feetOffset - floorY);
+                        if (distanceX <= weapon.impactRadius + enemy.width / 2 &&
+                            distanceY <= enemy.feetOffset + 42) {
+                            this.damageEnemyWithWeapon(player, enemy, weapon, damage);
                         }
+                    });
+                }
+                return;
+            }
 
-                        if (e.type === 'boss') {
-                            this.totalBosses++;
-                            this.addCoins(100, e.x, e.y);
-                            this.healPlayer(50, p.x, p.y);
-                            this.triggerBossDeathExplosion(e);
-                        } else {
-                            // REGLA OBLIGATORIA DE RECOMPENSA: +10 Monedas y +40 HP por enemigo
-                            this.addCoins(10, e.x, e.y);
-                            this.healPlayer(40, p.x, p.y);
-                        }
-                        if (p.effects.enabled && p.effects.defeatEnergy) {
-                            p.emitEffectBurst('defeat', Math.round(14 * p.effectDensity()));
-                        }
-
-                        this.saveProgress();
-                    }
+            if (!active) return;
+            this.enemies.forEach(enemy => {
+                if (enemy.isDead || player.hitEnemies.has(enemy)) return;
+                const dx = enemy.x - player.x;
+                const inDirection = player.facingRight ? dx > 0 : dx < 0;
+                const reach = weapon.reach + enemy.width / 2;
+                const verticalReach = enemy.height / 2 + weapon.impactRadius;
+                if (inDirection && Math.abs(dx) <= reach &&
+                    Math.abs(enemy.y - player.y) <= verticalReach) {
+                    this.damageEnemyWithWeapon(player, enemy, weapon, damage);
                 }
             });
         });
 
-        // Colisión de Proyectiles Hostiles con el Jugador y Bloqueo en Plataformas
         const floorY = this.getFloorY();
-        for (let i = this.projectiles.length - 1; i >= 0; i--) {
-            const pr = this.projectiles[i];
-            pr.update(this.width, floorY);
-
-            // Bloqueo de proyectiles por plataformas sólidas (evita daño falso a través de plataformas)
-            let blockedByPlatform = false;
-            if (this.platforms) {
-                for (const plat of this.platforms) {
-                    const nearestX = Math.max(plat.x, Math.min(pr.x, plat.x + plat.w));
-                    const nearestY = Math.max(plat.y, Math.min(pr.y, plat.y + plat.h));
-                    if (Math.hypot(pr.x - nearestX, pr.y - nearestY) <= pr.radius) {
-                        blockedByPlatform = true;
-                        for (let k = 0; k < 6; k++) {
-                            this.particles.push(new Particle(
-                                pr.x, pr.y,
-                                (Math.random() - 0.5) * 6, (Math.random() - 0.5) * 4,
-                                pr.color, 3, 14
-                            ));
-                        }
-                        break;
-                    }
-                }
-            }
-
-            if (blockedByPlatform) {
-                pr.active = false;
-                this.projectiles.splice(i, 1);
+        for (let index = this.projectiles.length - 1; index >= 0; index--) {
+            const projectile = this.projectiles[index];
+            projectile.update(this.width, floorY);
+            if (!projectile.active) {
+                this.projectiles.splice(index, 1);
                 continue;
             }
 
-            if (pr.isHostile) {
-                const livingPlayers = this.players.filter(player => !player.isGhost && !player.isDead);
-                if (livingPlayers.length === 0) {
-                    pr.active = false;
-                    this.projectiles.splice(i, 1);
-                    continue;
-                }
-                const target = livingPlayers.reduce((nearest, player) =>
-                    Math.hypot(pr.x - player.x, pr.y - player.y) <
-                    Math.hypot(pr.x - nearest.x, pr.y - nearest.y) ? player : nearest
-                );
-                const hitX = Math.max(0, Math.abs(pr.x - target.x) - target.width / 2);
-                const hitY = Math.max(0, Math.abs(pr.y - (target.y + 3)) - target.height / 2);
-                if (Math.hypot(hitX, hitY) <= pr.radius + (pr.isFalling ? 8 : 4)) {
-                    this.damagePlayer(pr.damage, target);
-                    pr.active = false;
-                    for (let k = 0; k < 12; k++) {
+            let blockedByPlatform = false;
+            for (const platform of this.platforms || []) {
+                const nearestX = Math.max(platform.x, Math.min(projectile.x, platform.x + platform.w));
+                const nearestY = Math.max(platform.y, Math.min(projectile.y, platform.y + platform.h));
+                if (Math.hypot(projectile.x - nearestX, projectile.y - nearestY) <= projectile.radius) {
+                    blockedByPlatform = true;
+                    for (let particle = 0; particle < 6; particle++) {
                         this.particles.push(new Particle(
-                            pr.x, pr.y,
-                            (Math.random() - 0.5) * 8, (Math.random() - 0.5) * 8,
-                            pr.color, 3.5, 20
+                            projectile.x, projectile.y,
+                            (Math.random() - 0.5) * 6, (Math.random() - 0.5) * 4,
+                            projectile.color, 3, 14
                         ));
                     }
+                    break;
                 }
             }
+            if (blockedByPlatform) {
+                this.projectiles.splice(index, 1);
+                continue;
+            }
 
-            if (!pr.active) this.projectiles.splice(i, 1);
+            if (!projectile.isHostile) {
+                const target = this.enemies.find(enemy => {
+                    if (enemy.isDead) return false;
+                    const hitX = Math.max(0, Math.abs(projectile.x - enemy.x) - enemy.width / 2);
+                    const hitY = Math.max(0, Math.abs(projectile.y - (enemy.y - 8)) - enemy.height / 2);
+                    return Math.hypot(hitX, hitY) <= projectile.radius;
+                });
+                if (target) {
+                    this.damageEnemyWithWeapon(
+                        projectile.owner,
+                        target,
+                        projectile.weapon || WEAPONS.blaster,
+                        projectile.damage,
+                        projectile.hitTargets,
+                        projectile.attackType
+                    );
+                    for (let particle = 0; particle < 12; particle++) {
+                        this.particles.push(new Particle(
+                            projectile.x, projectile.y,
+                            (Math.random() - 0.5) * 8, (Math.random() - 0.5) * 8,
+                            projectile.color, 3.5, 20
+                        ));
+                    }
+                    this.projectiles.splice(index, 1);
+                }
+                continue;
+            }
+
+            const livingPlayers = this.players.filter(player => !player.isGhost && !player.isDead);
+            if (livingPlayers.length === 0) {
+                this.projectiles.splice(index, 1);
+                continue;
+            }
+            const target = livingPlayers.reduce((nearest, player) =>
+                Math.hypot(projectile.x - player.x, projectile.y - player.y) <
+                Math.hypot(projectile.x - nearest.x, projectile.y - nearest.y) ? player : nearest
+            );
+            const hitX = Math.max(0, Math.abs(projectile.x - target.x) - target.width / 2);
+            const hitY = Math.max(0, Math.abs(projectile.y - (target.y + 3)) - target.height / 2);
+            if (Math.hypot(hitX, hitY) <= projectile.radius + (projectile.isFalling ? 8 : 4)) {
+                this.damagePlayer(projectile.damage, target);
+                for (let particle = 0; particle < 12; particle++) {
+                    this.particles.push(new Particle(
+                        projectile.x, projectile.y,
+                        (Math.random() - 0.5) * 8, (Math.random() - 0.5) * 8,
+                        projectile.color, 3.5, 20
+                    ));
+                }
+                this.projectiles.splice(index, 1);
+            }
         }
     }
 
@@ -1752,14 +1973,42 @@ class Game {
         };
 
         updateHealthBar('hp-bar', 'hp-text', this.player, 'P1');
+        const p1WeaponSelect = document.getElementById('p1-weapon-select');
+        if (p1WeaponSelect && this.players[0]?.weapon) {
+            const p1Weapons = this.playerProgress[0].purchasedWeapons;
+            if (p1WeaponSelect.options.length !== p1Weapons.length ||
+                [...p1WeaponSelect.options].some((option, index) => option.value !== p1Weapons[index])) {
+                p1WeaponSelect.replaceChildren(...p1Weapons.map(id =>
+                    new Option(WEAPONS[id].name, id)
+                ));
+            }
+            p1WeaponSelect.value = this.players[0].weapon.id;
+        }
 
         const p2 = this.players[1];
         const p2Section = document.querySelector('.p2-health-section');
+        const p2WeaponSection = document.getElementById('p2-weapon-section');
         if (p2Section) {
             p2Section.classList.toggle('hidden', !p2);
         }
+        if (p2WeaponSection) {
+            p2WeaponSection.classList.toggle('hidden', !p2);
+        }
+        const p2Coins = document.getElementById('hud-p2-coins');
+        if (p2Coins) p2Coins.classList.toggle('hidden', !p2);
         if (p2) {
             updateHealthBar('p2-hp-bar', 'p2-hp-text', p2, 'P2');
+            const p2WeaponSelect = document.getElementById('p2-weapon-select');
+            if (p2WeaponSelect && p2.weapon) {
+                const p2Weapons = this.playerProgress[1].purchasedWeapons;
+                if (p2WeaponSelect.options.length !== p2Weapons.length ||
+                    [...p2WeaponSelect.options].some((option, index) => option.value !== p2Weapons[index])) {
+                    p2WeaponSelect.replaceChildren(...p2Weapons.map(id =>
+                        new Option(WEAPONS[id].name, id)
+                    ));
+                }
+                p2WeaponSelect.value = p2.weapon.id;
+            }
         }
 
         // Barra de energía
@@ -1776,7 +2025,8 @@ class Game {
         }
 
         // Monedas, Zona y Oleadas
-        document.getElementById('hud-coins').innerText = `🪙 ${this.coins}`;
+        document.getElementById('hud-coins').innerText = `P1 🪙 ${this.playerProgress[0].coins}`;
+        if (p2Coins) p2Coins.innerText = `P2 🪙 ${this.playerProgress[1].coins}`;
         const currentZoneTitle = ZONE_SCENES[this.currentZone - 1]?.name || `ZONA ${this.currentZone}`;
         document.getElementById('hud-zone').innerText = `ZONA ${this.currentZone}: ${currentZoneTitle}`;
         document.getElementById('hud-wave').innerText = this.bossActive 
@@ -1828,7 +2078,7 @@ class Game {
         stats.innerHTML = `
             <div class="result-stats-card">
                 <p>Oleada Alcanzada: <strong>${this.currentWave} / ${this.maxWaves}</strong> (Zona ${this.currentZone})</p>
-                <p>Monedas Totales: <strong style="color: #ffcc00;">${this.coins} 🪙</strong></p>
+                <p>Monedas: <strong style="color: #ffcc00;">P1 ${this.playerProgress[0].coins} / P2 ${this.playerProgress[1].coins} 🪙</strong></p>
                 <p>Enemigos Eliminados: <strong>${this.totalKills}</strong></p>
             </div>
         `;
@@ -1846,9 +2096,9 @@ class Game {
         const stats = document.getElementById('victory-stats');
         stats.innerHTML = `
             <div class="result-stats-card" style="border-color: #00ff88;">
-                <p style="color: #00ff88; font-size: 1.3rem;">¡Has conquistado las 8 Zonas y derrotado a todos los Jefes!</p>
-                <p>Monedas Finales: <strong style="color: #ffcc00;">${this.coins} 🪙</strong></p>
-                <p>Jefes Derrotados: <strong>${this.totalBosses} / 8 👑</strong></p>
+                <p style="color: #00ff88; font-size: 1.3rem;">¡Has conquistado las 11 Zonas y derrotado a todos los Jefes!</p>
+                <p>Monedas finales: <strong style="color: #ffcc00;">P1 ${this.playerProgress[0].coins} / P2 ${this.playerProgress[1].coins} 🪙</strong></p>
+                <p>Jefes Derrotados: <strong>${this.totalBosses} / 11 👑</strong></p>
             </div>
         `;
         this.showOverlay('victory-overlay');
@@ -1878,6 +2128,10 @@ class Game {
         // Cada jugador consume únicamente las acciones asignadas a su entrada
         this.players.forEach((player, index) => {
             const playerId = index === 0 ? 'p1' : 'p2';
+            const weaponChanges = this.input.consumeWeaponChanges(playerId);
+            for (let change = 0; change < weaponChanges; change++) {
+                this.cyclePlayerWeapon(index);
+            }
             if (player.isGhost || player.isDead) {
                 player.update({ moveLeft: false, moveRight: false, jump: false, crouch: false }, this.platforms, floorY, this.width, deltaTime);
                 this.input.consumeAttacks(playerId);
@@ -1918,7 +2172,7 @@ class Game {
         // Comprobación de final de oleada
         if (allDead && this.enemies.length > 0) {
             if (this.bossActive) {
-                if (this.currentZone < 8) {
+                if (this.currentZone < ZONE_SCENES.length) {
                     this.bossActive = false;
                     this.setZone(this.currentZone + 1);
                     this.currentWave = 1;
