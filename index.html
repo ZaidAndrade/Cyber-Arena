@@ -15,6 +15,13 @@
 
 <body>
     <div id="game-container">
+        <!-- Intro de video previa al menú principal -->
+        <div id="intro-overlay" class="intro-overlay">
+            <video id="intro-video" src="video/intro.mp4" playsinline muted></video>
+            <button id="btn-unmute-intro" class="btn hidden" type="button">🔊 ACTIVAR SONIDO</button>
+            <button id="btn-skip-intro" class="btn" type="button">OMITIR</button>
+        </div>
+
         <!-- Lienzo Principal del Juego -->
         <canvas id="gameCanvas"></canvas>
 
@@ -118,7 +125,7 @@
         </div>
 
         <!-- PANTALLA: MENÚ PRINCIPAL -->
-        <div id="menu-overlay" class="overlay">
+        <div id="menu-overlay" class="overlay hidden">
             <h1 class="neon-title">NEON STICK</h1>
             <div class="neon-subtitle">CYBER ARENA</div>
             <div class="panel-title">Selecciona el modo de juego:</div>

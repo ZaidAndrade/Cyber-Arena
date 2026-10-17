@@ -106,9 +106,96 @@ class Game {
         // Inicialización de subsistemas
         this.initResize();
         this.initInput();
+        this.initIntro();
         this.initUI();
         this.setupZonePlatforms();
         this.updateHUD();
+    }
+
+    initIntro() {
+        const overlay = document.getElementById('intro-overlay');
+        const video = document.getElementById('intro-video');
+        const skipButton = document.getElementById('btn-skip-intro');
+        const unmuteButton = document.getElementById('btn-unmute-intro');
+
+        if (!overlay || !video || !skipButton || !unmuteButton) {
+            this.showOverlay('menu-overlay');
+            playMenuMusic();
+            return;
+        }
+
+        let finished = false;
+        let playRequested = false;
+        const finishIntro = () => {
+            if (finished) return;
+            finished = true;
+            video.pause();
+            overlay.classList.add('hidden');
+            this.showOverlay('menu-overlay');
+            playMenuMusic();
+        };
+        const requestPlayback = () => {
+            if (finished || playRequested) return null;
+            playRequested = true;
+            try {
+                return video.play();
+            } catch (error) {
+                playRequested = false;
+                return Promise.reject(error);
+            }
+        };
+        const activateAudio = () => {
+            if (finished) return;
+            video.muted = false;
+            if (video.paused) {
+                playRequested = false;
+                const playback = requestPlayback();
+                if (playback && typeof playback.then === 'function') {
+                    playback.then(() => {
+                        unmuteButton.classList.add('hidden');
+                    }).catch(() => {
+                        video.muted = true;
+                        unmuteButton.classList.remove('hidden');
+                        playRequested = false;
+                    });
+                }
+                return;
+            }
+            unmuteButton.classList.add('hidden');
+        };
+        const startVideo = () => {
+            const playback = requestPlayback();
+            if (playback && typeof playback.catch === 'function') {
+                playback.catch(() => {
+                    playRequested = false;
+                    video.muted = true;
+                    unmuteButton.classList.remove('hidden');
+                    const mutedPlayback = requestPlayback();
+                    if (mutedPlayback && typeof mutedPlayback.catch === 'function') {
+                        mutedPlayback.catch(() => {
+                            playRequested = false;
+                        });
+                    }
+                });
+            }
+        };
+
+        video.addEventListener('ended', finishIntro, { once: true });
+        video.addEventListener('error', () => {
+            console.warn('No se pudo reproducir el video de introducción.');
+            finishIntro();
+        }, { once: true });
+        skipButton.addEventListener('click', event => {
+            event.stopPropagation();
+            finishIntro();
+        });
+        unmuteButton.addEventListener('click', event => {
+            event.stopPropagation();
+            activateAudio();
+        });
+        overlay.addEventListener('click', activateAudio);
+        video.muted = false;
+        startVideo();
     }
 
     /**
@@ -218,8 +305,17 @@ class Game {
         ));
     }
 
+    isPlayerCombatReady(player) {
+        return Boolean(
+            player &&
+            !player.isGhost &&
+            !player.isDead &&
+            ['alive', 'hit', 'downed', 'revived'].includes(player.state)
+        );
+    }
+
     getAlivePlayers() {
-        return this.players.filter(player => player && !player.isGhost && !player.isDead);
+        return this.players.filter(player => this.isPlayerCombatReady(player));
     }
 
     getActivePlayer() {
@@ -232,29 +328,66 @@ class Game {
     revivePlayersForNextZone() {
         const floorY = this.getFloorY();
         this.players.forEach((player, index) => {
-            if (!player || (!player.isGhost && !player.isDead)) return;
-            const spawnX = index === 0
+            if (!player || this.isPlayerCombatReady(player)) return;
+            const preferredX = index === 0
                 ? Math.max(25, Math.min(150, this.width * 0.25))
                 : Math.min(this.width - 25, Math.max(this.width - 150, this.width * 0.75));
+            const spawnCandidates = [
+                preferredX,
+                this.width * (index === 0 ? 0.18 : 0.82),
+                this.width * (index === 0 ? 0.32 : 0.68),
+                this.width / 2
+            ].map(x => Math.max(25, Math.min(this.width - 25, x)));
+            const spawnX = spawnCandidates.find(candidate =>
+                this.players.every(other =>
+                    other === player ||
+                    !this.isPlayerCombatReady(other) ||
+                    Math.abs(other.x - candidate) >= (player.width + other.width) / 2 + 8
+                ) &&
+                this.enemies.every(enemy =>
+                    enemy.isDead ||
+                    Math.abs(enemy.x - candidate) >= (player.width + enemy.width) / 2 + 24
+                )
+            ) ?? preferredX;
+
             player.x = spawnX;
             player.y = floorY - 70;
             player.vx = 0;
             player.vy = 0;
             player.knockbackVx = 0;
+            player.isGrounded = true;
+            player.isCrouching = false;
             player.hp = player.maxHp;
             player.energy = 0;
-            player.isGhost = false;
-            player.isDead = false;
+            player.setState('respawning');
             player.isAttacking = false;
+            player.attackType = null;
             player.attackTimer = 0;
             player.attackCooldown = 0;
             player.attackElapsed = 0;
             player.attackImpactResolved = false;
             player.attackWeapon = null;
             player.hitEnemies.clear();
+            player.stateTimer = 0;
             player.invulnerableTimer = 60;
             player.facingRight = index === 0;
+            player.setState('alive');
+            this.explosions.push(new ExplosionEffect(
+                player.x,
+                player.y - 8,
+                42,
+                player.accentColor || player.color
+            ));
+            this.floatingTexts.push(new FloatingText(
+                player.x,
+                player.y - 54,
+                `${player.playerId} ¡REAPARECIÓ!`,
+                player.accentColor || player.color,
+                16
+            ));
+            player.emitEffectBurst('combat', Math.round(16 * player.effectDensity()));
         });
+        this.updateHUD();
     }
 
     /**
@@ -484,7 +617,6 @@ class Game {
         document.getElementById('btn-play-two').onclick = () => { sound.init(); this.startGame(2); };
         document.getElementById('btn-shop').onclick = () => { sound.init(); this.openShop(); };
         document.getElementById('btn-customize').onclick = () => this.openCustomization();
-        playMenuMusic();
         document.querySelectorAll('[data-customization-player]').forEach(button => {
             button.addEventListener('click', () => {
                 this.selectCustomizationPlayer(Number(button.dataset.customizationPlayer));
@@ -1445,8 +1577,9 @@ class Game {
      */
     startGame(playerCount = this.playerCount) {
         this.createPlayers(playerCount);
+        this.players.forEach(player => player.setState('alive'));
         this.input.setPlayerCount(playerCount);
-        this.input.clearAttacks();
+        this.input.clearActions();
         this.teamInvulnerableTimer = 0;
         this.currentZone = 1;
         this.activeBackground = ZONE_BACKGROUND_IMAGES[this.currentZone - 1];
@@ -1600,16 +1733,62 @@ class Game {
         this.floatingTexts.push(new FloatingText(this.width / 2, this.height / 3, `⚠ BOSS: ${config.name} ⚠`, config.color, 28));
     }
 
+    triggerPlayerSpecialAbility(player) {
+        if (!this.isPlayerCombatReady(player)) return;
+
+        const burstRadius = 150;
+        const damage = 30 + (player.weapon?.damage || 15) * 1.5;
+        const burstColor = player.accentColor || player.color || '#ffffff';
+
+        this.explosions.push(new ExplosionEffect(player.x, player.y - 8, burstRadius * 0.3, burstColor));
+        for (let i = 0; i < 24; i++) {
+            const angle = (Math.PI * 2 * i) / 24;
+            const speed = 2 + Math.random() * 4;
+            this.particles.push(new Particle(
+                player.x,
+                player.y - 8,
+                Math.cos(angle) * speed,
+                Math.sin(angle) * speed,
+                burstColor,
+                3 + Math.random() * 3,
+                18 + Math.random() * 12
+            ));
+        }
+
+        this.enemies.forEach(enemy => {
+            if (enemy.isDead) return;
+            const distance = Math.hypot(enemy.x - player.x, enemy.y - player.y);
+            if (distance <= burstRadius) {
+                const blastDamage = damage * (1 - distance / burstRadius);
+                enemy.hp = Math.max(0, enemy.hp - blastDamage);
+                enemy.vx += (enemy.x >= player.x ? 1 : -1) * 7;
+                enemy.knockbackVx = (enemy.x >= player.x ? 1 : -1) * 10;
+                this.floatingTexts.push(new FloatingText(enemy.x, enemy.y - 30, `-${Math.round(blastDamage)}`, burstColor, 18));
+                this.screenShake = Math.max(this.screenShake, 12);
+            }
+        });
+
+        player.energy = 0;
+        player.knockbackVx = player.facingRight ? 9 : -9;
+        player.vy = -3.5;
+        this.vibrate(20);
+    }
+
     /**
      * Inflige daño a un jugador concreto sin compartir su salud con el resto.
      */
     damagePlayer(amount = 5, target = this.player) {
         const playerTarget = target || this.player;
-        if (!playerTarget || playerTarget.isGhost || this.teamInvulnerableTimer > 0 || this.state !== 'PLAYING' || amount <= 0) return;
+        if (!this.isPlayerCombatReady(playerTarget) ||
+            this.teamInvulnerableTimer > 0 ||
+            this.state !== 'PLAYING' ||
+            !Number.isFinite(amount) ||
+            amount <= 0) return;
 
         const actualDamage = Math.min(playerTarget.hp, amount);
         playerTarget.hp = Math.max(0, playerTarget.hp - actualDamage);
         playerTarget.invulnerableTimer = 34;
+        playerTarget.setState('hit');
         this.teamInvulnerableTimer = 34; // ~550ms de invulnerabilidad compartida
 
         sound.playDamage();
@@ -1626,18 +1805,28 @@ class Game {
         this.updateHUD();
 
         if (playerTarget.hp <= 0) {
-            playerTarget.isDead = true;
-            playerTarget.isGhost = true;
             playerTarget.hp = 0;
+            playerTarget.setState('ghost');
             playerTarget.isAttacking = false;
+            playerTarget.attackType = null;
             playerTarget.attackTimer = 0;
             playerTarget.attackCooldown = 0;
+            playerTarget.attackElapsed = 0;
+            playerTarget.attackImpactResolved = false;
+            playerTarget.attackWeapon = null;
             playerTarget.hitEnemies.clear();
             playerTarget.energy = 0;
             playerTarget.vx = 0;
             playerTarget.vy = 0;
+            playerTarget.knockbackVx = 0;
+            playerTarget.isGrounded = false;
+            playerTarget.emitEffectBurst('defeat', Math.round(18 * playerTarget.effectDensity()));
+            this.projectiles = this.projectiles.filter(projectile =>
+                projectile.isHostile || projectile.owner !== playerTarget
+            );
+            this.updateHUD();
 
-            const alivePlayers = this.players.filter(player => !player.isGhost && !player.isDead);
+            const alivePlayers = this.getAlivePlayers();
             if (this.playerCount === 1 || alivePlayers.length === 0) {
                 this.triggerGameOver();
             }
@@ -1669,6 +1858,7 @@ class Game {
         }
 
         const affectedPlayers = this.players
+            .filter(player => this.isPlayerCombatReady(player))
             .map(player => ({ player, distance: Math.hypot(player.x - boss.x, player.y - boss.y) }))
             .filter(({ distance }) => distance < config.radius);
         if (affectedPlayers.length === 0) return;
@@ -1702,7 +1892,7 @@ class Game {
      */
     healPlayer(amount, x, y, target = this.player) {
         const playerTarget = target || this.player;
-        if (!playerTarget || playerTarget.hp >= playerTarget.maxHp) return;
+        if (!this.isPlayerCombatReady(playerTarget) || playerTarget.hp >= playerTarget.maxHp) return;
 
         const actualHeal = Math.min(amount, playerTarget.maxHp - playerTarget.hp);
         playerTarget.hp = Math.min(playerTarget.maxHp, playerTarget.hp + actualHeal);
@@ -1725,7 +1915,7 @@ class Game {
     }
 
     damageEnemyWithWeapon(player, enemy, weapon, damage, hitTargets = player.hitEnemies, attackType = player.attackType) {
-        if (enemy.isDead || hitTargets.has(enemy)) return;
+        if (!this.isPlayerCombatReady(player) || enemy.isDead || hitTargets.has(enemy)) return;
         hitTargets.add(enemy);
         const appliedDamage = enemy.type === 'boss'
             ? damage * (BOSS_WEAPON_DAMAGE_MULTIPLIERS[weapon.id] || 1)
@@ -1789,7 +1979,7 @@ class Game {
      */
     checkCombatCollisions() {
         this.players.forEach(player => {
-            if (player.isGhost || player.isDead || !player.isAttacking) return;
+            if (!this.isPlayerCombatReady(player) || !player.isAttacking) return;
             const weapon = player.attackWeapon || player.weapon || WEAPONS.whip;
             const multiplier = player.attackType === 'heavy' ? 1.35 :
                 (player.attackType === 'special' ? 2 : 1);
@@ -1918,7 +2108,7 @@ class Game {
                 continue;
             }
 
-            const livingPlayers = this.players.filter(player => !player.isGhost && !player.isDead);
+            const livingPlayers = this.getAlivePlayers();
             if (livingPlayers.length === 0) {
                 this.projectiles.splice(index, 1);
                 continue;
@@ -1969,10 +2159,12 @@ class Game {
                 bar.style.boxShadow = '0 0 15px rgba(255, 0, 85, 0.9)';
             }
 
-            text.innerText = `❤️ ${label}: ${Math.round(player.hp)} / ${Math.round(player.maxHp)}`;
+            text.innerText = this.isPlayerCombatReady(player)
+                ? `❤️ ${label}: ${Math.round(player.hp)} / ${Math.round(player.maxHp)}`
+                : `👻 ${label}: ESPERA FIN DE ZONA`;
         };
 
-        updateHealthBar('hp-bar', 'hp-text', this.player, 'P1');
+        updateHealthBar('hp-bar', 'hp-text', this.players[0] || this.player, 'P1');
         const p1WeaponSelect = document.getElementById('p1-weapon-select');
         if (p1WeaponSelect && this.players[0]?.weapon) {
             const p1Weapons = this.playerProgress[0].purchasedWeapons;
@@ -2018,10 +2210,10 @@ class Game {
 
         if (this.player.energy >= 100) {
             energyBar.classList.add('energy-full');
-            energyText.innerText = '⚡ [L] ESPECIAL LISTO!';
+            energyText.innerText = `⚡ ${this.player.playerId} [L] ESPECIAL LISTO!`;
         } else {
             energyBar.classList.remove('energy-full');
-            energyText.innerText = `⚡ ENERGÍA: ${Math.round(this.player.energy)} / 100`;
+            energyText.innerText = `⚡ ${this.player.playerId} ENERGÍA: ${Math.round(this.player.energy)} / 100`;
         }
 
         // Monedas, Zona y Oleadas
@@ -2045,7 +2237,7 @@ class Game {
         // Botón especial en controles táctiles (brillo pulsante al estar listo)
         const specialBtn = document.getElementById('btn-touch-special');
         if (specialBtn) {
-            if (this.player.energy >= 100) {
+            if (this.isPlayerCombatReady(this.players[0]) && this.players[0].energy >= 100) {
                 specialBtn.classList.add('energy-ready');
             } else {
                 specialBtn.classList.remove('energy-ready');
@@ -2128,18 +2320,20 @@ class Game {
         // Cada jugador consume únicamente las acciones asignadas a su entrada
         this.players.forEach((player, index) => {
             const playerId = index === 0 ? 'p1' : 'p2';
+            if (!this.isPlayerCombatReady(player)) {
+                this.input.consumeWeaponChanges(playerId);
+                this.input.consumeAttacks(playerId);
+                player.update({ moveLeft: false, moveRight: false, jump: false, crouch: false }, this.platforms, floorY, this.width, deltaTime);
+                return;
+            }
             const weaponChanges = this.input.consumeWeaponChanges(playerId);
             for (let change = 0; change < weaponChanges; change++) {
                 this.cyclePlayerWeapon(index);
             }
-            if (player.isGhost || player.isDead) {
-                player.update({ moveLeft: false, moveRight: false, jump: false, crouch: false }, this.platforms, floorY, this.width, deltaTime);
-                this.input.consumeAttacks(playerId);
-                return;
-            }
             player.update(this.input.getActions(playerId), this.platforms, floorY, this.width, deltaTime);
             this.input.consumeAttacks(playerId).forEach(type => {
                 if (player.attack(type) && type === 'special') {
+                    this.triggerPlayerSpecialAbility(player);
                     sound.playSpecial();
                 }
             });
@@ -2148,7 +2342,7 @@ class Game {
         // Actualizar enemigos
         let allDead = true;
         this.enemies.forEach(e => {
-            const livingPlayers = this.players.filter(player => !player.isGhost && !player.isDead);
+            const livingPlayers = this.getAlivePlayers();
             const target = livingPlayers.length > 0
                 ? livingPlayers.reduce((nearest, player) =>
                     Math.hypot(player.x - e.x, player.y - e.y) <

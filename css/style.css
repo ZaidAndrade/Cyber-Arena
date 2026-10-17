@@ -57,6 +57,47 @@ html, body {
     touch-action: none;
 }
 
+#intro-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    background: #03030a;
+    z-index: 9999;
+}
+
+#intro-overlay.hidden {
+    display: none;
+}
+
+#intro-video {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+#btn-unmute-intro {
+    position: absolute;
+    top: max(24px, env(safe-area-inset-top));
+    right: max(24px, env(safe-area-inset-right));
+    z-index: 1;
+}
+
+#btn-unmute-intro.hidden {
+    display: none;
+}
+
+#btn-skip-intro {
+    position: absolute;
+    right: max(24px, env(safe-area-inset-right));
+    bottom: max(24px, env(safe-area-inset-bottom));
+    z-index: 1;
+}
+
 canvas#gameCanvas {
     display: block;
     width: 100%;

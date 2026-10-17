@@ -395,10 +395,29 @@ class Player {
         this.effectParticles = [];
         this.effectFrame = 0;
         this.combatFlashTimer = 0;
+        this.state = 'alive';
+        this.previousState = 'alive';
+        this.stateTimer = 0;
+        this.deathAnimationTimer = 0;
+        this.respawnTimer = 0;
 
         // Articulaciones para animación cinemática
         this.legAngle = 0;
         this.armAngle = 0;
+    }
+
+    setState(nextState) {
+        const validStates = ['alive', 'hit', 'downed', 'dead', 'ghost', 'waitingRespawn', 'respawning', 'revived'];
+        if (!validStates.includes(nextState)) {
+            throw new RangeError(`Estado de jugador no válido: ${nextState}`);
+        }
+
+        this.previousState = this.state || 'alive';
+        this.state = nextState;
+        this.stateTimer = nextState === 'hit' ? 10 : 0;
+        this.isGhost = ['ghost', 'waitingRespawn', 'respawning'].includes(nextState);
+        this.isDead = ['dead', 'ghost', 'waitingRespawn', 'respawning'].includes(nextState);
+        return nextState;
     }
 
     update(actions, platforms, floorY, arenaWidth, deltaTime = 1) {
@@ -499,6 +518,11 @@ class Player {
 
         this.updateEffectParticles();
         if (this.combatFlashTimer > 0) this.combatFlashTimer--;
+
+        if (this.state === 'hit') {
+            this.stateTimer -= deltaTime;
+            if (this.stateTimer <= 0) this.setState('alive');
+        }
 
         // Decaimiento de invulnerabilidad
         if (this.invulnerableTimer > 0) {

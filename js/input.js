@@ -289,6 +289,17 @@ class InputManager {
         this.weaponQueues.p2 = 0;
     }
 
+    clearActions() {
+        this.keyboardActions.p1.clear();
+        this.keyboardActions.p2.clear();
+        Object.values(this.sources).forEach(playerSources => {
+            playerSources.keyboard.clear();
+            playerSources.touch.clear();
+            playerSources.gamepad.clear();
+        });
+        this.clearAttacks();
+    }
+
     destroy() {
         window.removeEventListener('keydown', this.handleKeyDown);
         window.removeEventListener('keyup', this.handleKeyUp);
