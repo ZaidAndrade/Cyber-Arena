@@ -38,6 +38,8 @@ const BOSS_WEAPON_DAMAGE_MULTIPLIERS = Object.freeze({
     seismicHammer: 1.5
 });
 
+let isIntroFinished = false;
+
 class Game {
     constructor() {
         this.canvas = document.getElementById('gameCanvas');
@@ -61,6 +63,9 @@ class Game {
         this.activeBackground = ZONE_BACKGROUND_IMAGES[this.currentZone - 1];
         this.currentWave = 1;
         this.maxWaves = 5;
+        this.isSurvivalMode = false;
+        this.survivalWavesCleared = 0;
+        this.survivalBestWave = Number(localStorage.getItem('survivalBestWave')) || 0;
 
         // Carga de datos persistentes desde localStorage
         this.loadProgress();
@@ -124,18 +129,41 @@ class Game {
             return;
         }
 
-        let finished = false;
+        let dismissed = false;
         let playRequested = false;
-        const finishIntro = () => {
-            if (finished) return;
-            finished = true;
+        const onIntroEnded = () => finishIntro(true);
+        const onIntroError = () => {
+            console.warn('No se pudo reproducir el video de introducción.');
+            finishIntro(false);
+        };
+        const onSkipIntro = event => {
+            event.stopPropagation();
+            finishIntro(true);
+        };
+        const onUnmuteIntro = event => {
+            event.stopPropagation();
+            activateAudio();
+        };
+        const onOverlayClick = () => activateAudio();
+
+        const finishIntro = completed => {
+            if (dismissed) return;
+            dismissed = true;
+            if (completed) isIntroFinished = true;
             video.pause();
+            video.removeAttribute('loop');
+            video.loop = false;
+            video.removeEventListener('ended', onIntroEnded);
+            video.removeEventListener('error', onIntroError);
+            skipButton.removeEventListener('click', onSkipIntro);
+            unmuteButton.removeEventListener('click', onUnmuteIntro);
+            overlay.removeEventListener('click', onOverlayClick);
             overlay.classList.add('hidden');
             this.showOverlay('menu-overlay');
             playMenuMusic();
         };
         const requestPlayback = () => {
-            if (finished || playRequested) return null;
+            if (dismissed || playRequested) return null;
             playRequested = true;
             try {
                 return video.play();
@@ -145,15 +173,16 @@ class Game {
             }
         };
         const activateAudio = () => {
-            if (finished) return;
+            if (dismissed) return;
             video.muted = false;
             if (video.paused) {
                 playRequested = false;
                 const playback = requestPlayback();
                 if (playback && typeof playback.then === 'function') {
                     playback.then(() => {
-                        unmuteButton.classList.add('hidden');
+                        if (!dismissed) unmuteButton.classList.add('hidden');
                     }).catch(() => {
+                        if (dismissed) return;
                         video.muted = true;
                         unmuteButton.classList.remove('hidden');
                         playRequested = false;
@@ -167,6 +196,7 @@ class Game {
             const playback = requestPlayback();
             if (playback && typeof playback.catch === 'function') {
                 playback.catch(() => {
+                    if (dismissed) return;
                     playRequested = false;
                     video.muted = true;
                     unmuteButton.classList.remove('hidden');
@@ -180,20 +210,11 @@ class Game {
             }
         };
 
-        video.addEventListener('ended', finishIntro, { once: true });
-        video.addEventListener('error', () => {
-            console.warn('No se pudo reproducir el video de introducción.');
-            finishIntro();
-        }, { once: true });
-        skipButton.addEventListener('click', event => {
-            event.stopPropagation();
-            finishIntro();
-        });
-        unmuteButton.addEventListener('click', event => {
-            event.stopPropagation();
-            activateAudio();
-        });
-        overlay.addEventListener('click', activateAudio);
+        video.addEventListener('ended', onIntroEnded);
+        video.addEventListener('error', onIntroError);
+        skipButton.addEventListener('click', onSkipIntro);
+        unmuteButton.addEventListener('click', onUnmuteIntro);
+        overlay.addEventListener('click', onOverlayClick);
         video.muted = false;
         startVideo();
     }
@@ -591,6 +612,27 @@ class Game {
         setupActionTouch('btn-touch-light', 'attack', 'light');
         setupActionTouch('btn-touch-heavy', 'attack', 'heavy');
         setupActionTouch('btn-touch-special', 'attack', 'special');
+
+        const dashButton = document.getElementById('btn-touch-dash');
+        if (dashButton) {
+            const startDash = event => {
+                event.preventDefault();
+                sound.init();
+                dashButton.classList.add('active');
+                if (this.state === 'PLAYING') this.input.queueDash('p1');
+                this.vibrate(15);
+            };
+            const endDash = event => {
+                event.preventDefault();
+                dashButton.classList.remove('active');
+            };
+            dashButton.addEventListener('touchstart', startDash, { passive: false });
+            dashButton.addEventListener('touchend', endDash, { passive: false });
+            dashButton.addEventListener('touchcancel', endDash, { passive: false });
+            dashButton.addEventListener('mousedown', startDash);
+            dashButton.addEventListener('mouseup', endDash);
+            dashButton.addEventListener('mouseleave', endDash);
+        }
     }
 
     /**
@@ -615,6 +657,7 @@ class Game {
         // Menú principal
         document.getElementById('btn-play-single').onclick = () => { sound.init(); this.startGame(1); };
         document.getElementById('btn-play-two').onclick = () => { sound.init(); this.startGame(2); };
+        document.getElementById('btn-play-survival').onclick = () => { sound.init(); this.startGame(1, true); };
         document.getElementById('btn-shop').onclick = () => { sound.init(); this.openShop(); };
         document.getElementById('btn-customize').onclick = () => this.openCustomization();
         document.querySelectorAll('[data-customization-player]').forEach(button => {
@@ -673,7 +716,7 @@ class Game {
         };
 
         // Reintentos y finalizaciones
-        document.getElementById('btn-retry').onclick = () => this.startGame();
+        document.getElementById('btn-retry').onclick = () => this.startGame(this.playerCount, this.isSurvivalMode);
         document.getElementById('btn-gameover-menu').onclick = () => {
             this.showOverlay('menu-overlay');
             this.state = 'MENU';
@@ -739,6 +782,9 @@ class Game {
         if (id) {
             const target = document.getElementById(id);
             if (target) target.classList.remove('hidden');
+        }
+        if (isIntroFinished) {
+            document.getElementById('intro-overlay')?.classList.add('hidden');
         }
     }
 
@@ -1423,6 +1469,9 @@ class Game {
                 <div class="shop-item-title" style="color:${w.color};">${w.name}</div>
                 <div class="shop-item-stats">
                     ${w.desc}
+                    ${w.effectLabel
+                        ? `<div class="shop-elemental-effect" data-effect="${w.elementalEffect}">Efecto: ${w.effectLabel}</div>`
+                        : ''}
                     <div class="stat-bars-container">
                         <div class="stat-row">
                             <span>Daño:</span>
@@ -1575,12 +1624,24 @@ class Game {
     /**
      * Inicia una nueva partida
      */
-    startGame(playerCount = this.playerCount) {
+    startGame(playerCount = this.playerCount, isSurvivalMode = false) {
+        if (isIntroFinished) {
+            const introOverlay = document.getElementById('intro-overlay');
+            const introVideo = document.getElementById('intro-video');
+            if (introVideo) {
+                introVideo.pause();
+                introVideo.removeAttribute('loop');
+                introVideo.loop = false;
+            }
+            introOverlay?.classList.add('hidden');
+        }
         this.createPlayers(playerCount);
         this.players.forEach(player => player.setState('alive'));
         this.input.setPlayerCount(playerCount);
         this.input.clearActions();
         this.teamInvulnerableTimer = 0;
+        this.isSurvivalMode = isSurvivalMode;
+        this.survivalWavesCleared = 0;
         this.currentZone = 1;
         this.activeBackground = ZONE_BACKGROUND_IMAGES[this.currentZone - 1];
         this.currentWave = 1;
@@ -1660,8 +1721,19 @@ class Game {
             { name: 'GUARDIÁN INCA', hp: 2200, color: '#2ec27e', element: 'earth', secondaryElement: 'water', accent: '#f4d35e' } // Machu
         ];
 
+        if (this.isSurvivalMode) {
+            const enemyCount = Math.min(18, 4 + Math.ceil((this.currentWave - 1) / 2));
+            const fast = Math.floor(enemyCount * 0.2);
+            const heavy = this.currentWave >= 3 ? Math.floor(enemyCount * 0.15) : 0;
+            const special = this.currentWave >= 5 ? Math.floor(enemyCount * 0.15) : 0;
+            this.spawnEnemies({
+                basic: enemyCount - fast - heavy - special,
+                fast,
+                heavy,
+                special
+            });
         // Distribución equilibrada de oleadas (1 a 4 normales, 5ta es Jefe de Zona)
-        if (this.currentWave < this.maxWaves) {
+        } else if (this.currentWave < this.maxWaves) {
             if (this.currentZone === 1) {
                 if (this.currentWave === 1) this.spawnEnemies({ basic: 3 });
                 else if (this.currentWave === 2) this.spawnEnemies({ basic: 4, fast: 1 });
@@ -1701,7 +1773,14 @@ class Game {
                     ? Math.max(30, Math.random() * (this.width * 0.22))
                     : Math.min(this.width - 30, this.width - Math.random() * (this.width * 0.22));
                 // Se genera anclado con precisión sobre el suelo base
-                this.enemies.push(new Enemy(spawnX, floorY - feetOffset, type));
+                const enemy = new Enemy(spawnX, floorY - feetOffset, type);
+                if (this.isSurvivalMode) {
+                    const multiplier = Math.pow(1.15, this.currentWave - 1);
+                    enemy.hp *= multiplier;
+                    enemy.maxHp *= multiplier;
+                    enemy.damageMultiplier = multiplier;
+                }
+                this.enemies.push(enemy);
             }
         });
     }
@@ -1725,6 +1804,28 @@ class Game {
         boss.color = config.color;
         boss.element = config.element || 'fire';
         boss.secondaryElement = config.secondaryElement || null;
+        const resistances = {
+            plasmaBurn: 0.5,
+            stun: 0.5,
+            cryoSlow: 0.5,
+            cryoFreeze: 0.5,
+            electroShock: 0.5
+        };
+        const elementalResistances = {
+            fire: { plasmaBurn: 0, cryoFreeze: 0.25 },
+            air: { stun: 0.25, cryoFreeze: 0.5 },
+            earth: { stun: 0.25, cryoSlow: 0.25 },
+            water: { cryoFreeze: 0, cryoSlow: 0.5 }
+        };
+        [boss.element, boss.secondaryElement].filter(Boolean).forEach(element => {
+            Object.entries(elementalResistances[element] || {}).forEach(([status, resistance]) => {
+                resistances[status] = Math.min(resistances[status], resistance);
+            });
+        });
+        resistances.stun = 0.5;
+        resistances.cryoFreeze = 0.5;
+        resistances.electroShock = 0.5;
+        boss.effectResistances = resistances;
         boss.accentColor = config.accent || config.color;
         boss.elementalProfile = ELEMENTAL_ATTACKS[boss.element] || ELEMENTAL_ATTACKS.fire;
         this.enemies.push(boss);
@@ -1780,6 +1881,7 @@ class Game {
     damagePlayer(amount = 5, target = this.player) {
         const playerTarget = target || this.player;
         if (!this.isPlayerCombatReady(playerTarget) ||
+            playerTarget.invulnerableTimer > 0 ||
             this.teamInvulnerableTimer > 0 ||
             this.state !== 'PLAYING' ||
             !Number.isFinite(amount) ||
@@ -1906,20 +2008,27 @@ class Game {
      */
     addCoins(amount, x, y, player = this.players[0]) {
         const playerIndex = Math.max(0, this.players.indexOf(player));
-        this.playerProgress[playerIndex].coins += amount;
+        const multiplier = this.isSurvivalMode
+            ? 1 + 0.15 * Math.max(0, this.currentWave - 1)
+            : 1;
+        const reward = Math.round(amount * multiplier);
+        this.playerProgress[playerIndex].coins += reward;
         sound.playCoin();
         this.floatingTexts.push(new FloatingText(
-            x, y - 22, `P${playerIndex + 1} +${amount} 🪙`, '#ffcc00', 20
+            x, y - 22, `P${playerIndex + 1} +${reward} 🪙`, '#ffcc00', 20
         ));
         this.saveProgress();
     }
 
-    damageEnemyWithWeapon(player, enemy, weapon, damage, hitTargets = player.hitEnemies, attackType = player.attackType) {
+    damageEnemyWithWeapon(player, enemy, weapon, damage, hitTargets = player.hitEnemies, attackType = player.attackType, allowShockwave = true, allowChain = true) {
         if (!this.isPlayerCombatReady(player) || enemy.isDead || hitTargets.has(enemy)) return;
         hitTargets.add(enemy);
-        const appliedDamage = enemy.type === 'boss'
-            ? damage * (BOSS_WEAPON_DAMAGE_MULTIPLIERS[weapon.id] || 1)
-            : damage;
+        enemy.lastStatusSource = player;
+        const incomingDamageMultiplier = (enemy.armorBreakTimer > 0 ? 1.15 : 1) *
+            (1 + enemy.cyberCutStacks * 0.1);
+        const appliedDamage = damage * incomingDamageMultiplier * (enemy.type === 'boss'
+            ? (BOSS_WEAPON_DAMAGE_MULTIPLIERS[weapon.id] || 1)
+            : 1);
         enemy.hp -= appliedDamage;
         player.energy = Math.min(100, player.energy + 10);
         this.updateHUD();
@@ -1936,11 +2045,18 @@ class Game {
             attackType === 'special' ? 26 : 20
         ));
 
+        const impactColor = weapon.id === 'dagger' ? '#8dff00'
+            : weapon.id === 'sword' ? '#ff8a1d'
+            : weapon.id === 'plasma' ? '#ff00aa'
+            : weapon.id === 'cyberDaggers' ? '#50cfff'
+            : weapon.id === 'whip' ? '#e8ff4a'
+            : weapon.id === 'hammer' || weapon.id === 'seismicHammer' ? '#d44cff'
+            : weapon.color;
         for (let index = 0; index < 7; index++) {
             this.particles.push(new Particle(
                 enemy.x, enemy.y - 15,
                 (Math.random() - 0.5) * 8, (Math.random() - 0.5) * 8,
-                weapon.color, 3.5, 22
+                impactColor, 3.5, 22
             ));
         }
 
@@ -1948,7 +2064,112 @@ class Game {
             enemy.knockbackVx = (player.facingRight ? 1 : -1) * 5;
         }
 
+        this.applyWeaponElementalEffect(player, enemy, weapon, allowChain);
+        if (allowShockwave &&
+            weapon.id === 'hammer' &&
+            ['heavy', 'special'].includes(attackType)) {
+            this.createHammerShockwave(player, enemy, weapon, damage, attackType);
+        }
+
         if (enemy.hp > 0 || enemy.isDead) return;
+        this.finishEnemyDeath(enemy, player);
+    }
+
+    applyWeaponElementalEffect(player, enemy, weapon, allowChain = true) {
+        switch (weapon.id) {
+        case 'dagger':
+            enemy.applyElementalStatus('poison', 90, player, 1.2);
+            break;
+        case 'sword':
+            enemy.applyElementalStatus('plasmaBurn', 150, player, 2);
+            break;
+        case 'plasma':
+            enemy.applyElementalStatus('plasmaBurn', 180, player, 4);
+            enemy.applyElementalStatus('armorBreak', 180, player);
+            break;
+        case 'hammer':
+            if (Math.random() < 0.4) {
+                const applied = enemy.applyElementalStatus('stun', 60, player);
+                if (applied) {
+                    this.floatingTexts.push(new FloatingText(
+                        enemy.x, enemy.y - enemy.height * 0.65, 'ATURDIDO', '#ff57f2', 12
+                    ));
+                }
+            }
+            break;
+        case 'whip': {
+            enemy.applyElementalStatus('electroShock', 48, player);
+            if (!allowChain) break;
+            const chainTargets = this.enemies
+                .filter(candidate => candidate !== enemy && !candidate.isDead &&
+                    Math.hypot(candidate.x - enemy.x, candidate.y - enemy.y) <= 135)
+                .sort((first, second) =>
+                    Math.hypot(first.x - enemy.x, first.y - enemy.y) -
+                    Math.hypot(second.x - enemy.x, second.y - enemy.y)
+                )
+                .slice(0, 2);
+            chainTargets.forEach(target => {
+                this.explosions.push(new ElectricArcEffect(
+                    enemy.x, enemy.y - 12, target.x, target.y - 12
+                ));
+                this.damageEnemyWithWeapon(
+                    player, target, weapon, weapon.damage * 0.35,
+                    new Set([enemy]), player.attackType, false, false
+                );
+            });
+            break;
+        }
+        case 'blaster':
+            enemy.applyElementalStatus('cryoSlow', 180, player);
+            if (Math.random() < 0.2) {
+                const applied = enemy.applyElementalStatus('cryoFreeze', 72, player);
+                if (applied) {
+                    this.floatingTexts.push(new FloatingText(
+                        enemy.x, enemy.y - enemy.height * 0.65, '¡CONGELADO!', '#7ceeff', 12
+                    ));
+                }
+            }
+            break;
+        case 'cyberDaggers':
+            enemy.applyElementalStatus('cyberCut', 300, player);
+            break;
+        }
+    }
+
+    createHammerShockwave(player, impactEnemy, weapon, damage, attackType) {
+        if (player.attackImpactResolved) return;
+        player.attackImpactResolved = true;
+        const floorY = this.getFloorY();
+        const centerX = impactEnemy.x;
+        const radius = Math.max(110, weapon.impactRadius);
+        const color = '#d44cff';
+        this.explosions.push(new ShockwaveEffect(centerX, floorY, radius, color));
+        this.screenShake = Math.max(this.screenShake, 12);
+        for (let index = 0; index < 18; index++) {
+            const angle = Math.random() * Math.PI * 2;
+            const speed = 3 + Math.random() * 7;
+            this.particles.push(new Particle(
+                centerX, floorY - 2,
+                Math.cos(angle) * speed, -Math.random() * speed,
+                color, 3 + Math.random() * 2, 24
+            ));
+        }
+
+        this.enemies.forEach(enemy => {
+            if (enemy === impactEnemy || enemy.isDead) return;
+            const distanceX = Math.abs(enemy.x - centerX);
+            const distanceY = Math.abs(enemy.y + enemy.feetOffset - floorY);
+            if (distanceX <= radius + enemy.width / 2 && distanceY <= enemy.feetOffset + 42) {
+                this.damageEnemyWithWeapon(
+                    player, enemy, weapon, damage * 0.45,
+                    new Set(), attackType, false
+                );
+            }
+        });
+    }
+
+    finishEnemyDeath(enemy, player) {
+        if (enemy.isDead) return;
         enemy.isDead = true;
         this.totalKills++;
         for (let index = 0; index < 18; index++) {
@@ -1968,7 +2189,7 @@ class Game {
             this.addCoins(10, enemy.x, enemy.y, player);
             this.healPlayer(40, player.x, player.y, player);
         }
-        if (player.effects.enabled && player.effects.defeatEnergy) {
+        if (player?.effects.enabled && player.effects.defeatEnergy) {
             player.emitEffectBurst('defeat', Math.round(14 * player.effectDensity()));
         }
         this.saveProgress();
@@ -2015,7 +2236,14 @@ class Game {
                     player.attackImpactResolved = true;
                     const floorY = this.getFloorY();
                     const centerX = player.x + (player.facingRight ? 1 : -1) * 18;
-                    this.explosions.push(new ExplosionEffect(centerX, floorY, weapon.impactRadius, weapon.color));
+                    const createsShockwave = weapon.id === 'seismicHammer' ||
+                        (weapon.id === 'hammer' && ['heavy', 'special'].includes(player.attackType));
+                    this.explosions.push(createsShockwave
+                        ? new ShockwaveEffect(centerX, floorY, weapon.impactRadius, '#d44cff')
+                        : new ExplosionEffect(centerX, floorY, weapon.impactRadius, weapon.color));
+                    if (weapon.id === 'seismicHammer') {
+                        this.explosions.push(new SeismicCrackEffect(centerX, floorY - 2, player.facingRight ? 1 : -1));
+                    }
                     this.screenShake = Math.max(this.screenShake, 9);
                     for (let index = 0; index < 22; index++) {
                         this.particles.push(new Particle(
@@ -2029,6 +2257,12 @@ class Game {
                         const distanceY = Math.abs(enemy.y + enemy.feetOffset - floorY);
                         if (distanceX <= weapon.impactRadius + enemy.width / 2 &&
                             distanceY <= enemy.feetOffset + 42) {
+                            if (weapon.id === 'seismicHammer') {
+                                const direction = enemy.x === centerX
+                                    ? (player.facingRight ? 1 : -1)
+                                    : Math.sign(enemy.x - centerX);
+                                enemy.knockbackVx += direction * 8;
+                            }
                             this.damageEnemyWithWeapon(player, enemy, weapon, damage);
                         }
                     });
@@ -2220,10 +2454,14 @@ class Game {
         document.getElementById('hud-coins').innerText = `P1 🪙 ${this.playerProgress[0].coins}`;
         if (p2Coins) p2Coins.innerText = `P2 🪙 ${this.playerProgress[1].coins}`;
         const currentZoneTitle = ZONE_SCENES[this.currentZone - 1]?.name || `ZONA ${this.currentZone}`;
-        document.getElementById('hud-zone').innerText = `ZONA ${this.currentZone}: ${currentZoneTitle}`;
-        document.getElementById('hud-wave').innerText = this.bossActive 
-            ? '⚠ COMBATE DE JEFE' 
-            : `OLEADA ${this.currentWave} / ${this.maxWaves}`;
+        document.getElementById('hud-zone').innerText = this.isSurvivalMode
+            ? 'MODO SUPERVIVENCIA'
+            : `ZONA ${this.currentZone}: ${currentZoneTitle}`;
+        document.getElementById('hud-wave').innerText = this.isSurvivalMode
+            ? `SUPERVIVENCIA - OLEADA ${this.currentWave}`
+            : this.bossActive
+                ? '⚠ COMBATE DE JEFE'
+                : `OLEADA ${this.currentWave} / ${this.maxWaves}`;
 
         // Contador de Combo
         const comboEl = document.getElementById('combo-display');
@@ -2266,10 +2504,18 @@ class Game {
         musicManager.stop();
         document.getElementById('hud').classList.add('hidden');
 
+        if (this.isSurvivalMode) {
+            this.survivalBestWave = Math.max(this.survivalBestWave, this.survivalWavesCleared);
+            localStorage.setItem('survivalBestWave', String(this.survivalBestWave));
+        }
         const stats = document.getElementById('gameover-stats');
         stats.innerHTML = `
             <div class="result-stats-card">
-                <p>Oleada Alcanzada: <strong>${this.currentWave} / ${this.maxWaves}</strong> (Zona ${this.currentZone})</p>
+                ${this.isSurvivalMode
+                    ? `<p>Oleadas sobrevividas: <strong>${this.survivalWavesCleared}</strong></p>
+                       <p>Oleada alcanzada: <strong>${this.currentWave}</strong></p>
+                       <p>Récord personal: <strong>${this.survivalBestWave} oleadas sobrevividas</strong></p>`
+                    : `<p>Oleada Alcanzada: <strong>${this.currentWave} / ${this.maxWaves}</strong> (Zona ${this.currentZone})</p>`}
                 <p>Monedas: <strong style="color: #ffcc00;">P1 ${this.playerProgress[0].coins} / P2 ${this.playerProgress[1].coins} 🪙</strong></p>
                 <p>Enemigos Eliminados: <strong>${this.totalKills}</strong></p>
             </div>
@@ -2323,6 +2569,7 @@ class Game {
             if (!this.isPlayerCombatReady(player)) {
                 this.input.consumeWeaponChanges(playerId);
                 this.input.consumeAttacks(playerId);
+                this.input.consumeDashes(playerId);
                 player.update({ moveLeft: false, moveRight: false, jump: false, crouch: false }, this.platforms, floorY, this.width, deltaTime);
                 return;
             }
@@ -2330,7 +2577,9 @@ class Game {
             for (let change = 0; change < weaponChanges; change++) {
                 this.cyclePlayerWeapon(index);
             }
-            player.update(this.input.getActions(playerId), this.platforms, floorY, this.width, deltaTime);
+            const actions = this.input.getActions(playerId);
+            actions.dash = this.input.consumeDashes(playerId) > 0;
+            player.update(actions, this.platforms, floorY, this.width, deltaTime);
             this.input.consumeAttacks(playerId).forEach(type => {
                 if (player.attack(type) && type === 'special') {
                     this.triggerPlayerSpecialAbility(player);
@@ -2358,7 +2607,21 @@ class Game {
                 this.platforms,
                 this.particles,
                 (shake) => { this.screenShake = shake; },
-                deltaTime
+                deltaTime,
+                (damage, target) => {
+                    target.hp = Math.max(0, target.hp - damage);
+                    const damageColor = target.lastStatusDamageColor || '#ff9a35';
+                    this.floatingTexts.push(new FloatingText(
+                        target.x + (Math.random() - 0.5) * 10,
+                        target.y - 25 - Math.random() * 8,
+                        `-${Math.round(damage)}`,
+                        damageColor,
+                        12
+                    ));
+                    if (target.hp <= 0) {
+                        this.finishEnemyDeath(target, target.lastStatusSource || this.players[0]);
+                    }
+                }
             );
             if (!e.isDead) allDead = false;
         });
@@ -2375,6 +2638,13 @@ class Game {
                 } else {
                     this.triggerVictory();
                 }
+            } else if (this.isSurvivalMode) {
+                this.survivalWavesCleared++;
+                this.getAlivePlayers().forEach(player => {
+                    this.addCoins(25, player.x, player.y, player);
+                });
+                this.currentWave++;
+                this.startWave();
             } else {
                 this.currentWave++;
                 this.startWave();

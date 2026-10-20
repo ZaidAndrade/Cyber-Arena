@@ -1152,6 +1152,19 @@ canvas#gameCanvas {
     box-shadow: 0 0 24px var(--neon-magenta);
 }
 
+.touch-btn-dash {
+    border-color: var(--neon-purple);
+    color: #d49aff;
+    box-shadow: 0 0 14px rgba(176, 0, 255, 0.4);
+}
+
+.touch-btn-dash:active,
+.touch-btn-dash.active {
+    background: var(--neon-purple);
+    color: #ffffff;
+    box-shadow: 0 0 24px var(--neon-purple);
+}
+
 /* Animación pulsante para el botón especial cuando está cargado al 100% */
 .touch-btn-special.energy-ready {
     border-color: #ffffff;
@@ -1234,6 +1247,77 @@ canvas#gameCanvas {
     font-size: 0.95rem;
     color: #cccccc;
     line-height: 1.5;
+}
+
+.shop-elemental-effect {
+    display: inline-block;
+    margin-top: 8px;
+    padding: 4px 8px;
+    border: 1px solid rgba(0, 243, 255, 0.45);
+    border-radius: 999px;
+    color: #8bf5ff;
+    background: rgba(0, 243, 255, 0.1);
+    font-family: var(--font-heading);
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.3px;
+    text-shadow: 0 0 8px currentColor;
+}
+
+.shop-elemental-effect[data-effect="plasma"] {
+    color: #ff9a56;
+    border-color: rgba(255, 106, 50, 0.55);
+    background: rgba(255, 90, 54, 0.12);
+}
+
+.shop-elemental-effect[data-effect="plasmaDevastating"] {
+    color: #ff5cce;
+    border-color: rgba(255, 0, 170, 0.6);
+    background: rgba(255, 0, 170, 0.14);
+}
+
+.shop-elemental-effect[data-effect="shock"] {
+    color: #df9cff;
+    border-color: rgba(176, 0, 255, 0.55);
+    background: rgba(176, 0, 255, 0.12);
+}
+
+.shop-elemental-effect[data-effect="cryo"] {
+    color: #8bf5ff;
+    border-color: rgba(55, 231, 255, 0.55);
+    background: rgba(55, 231, 255, 0.12);
+}
+
+.shop-elemental-effect[data-effect="virus"] {
+    color: #aaff50;
+    border-color: rgba(141, 255, 0, 0.6);
+    background: rgba(141, 255, 0, 0.12);
+}
+
+.shop-elemental-effect[data-effect="electric"] {
+    color: #efff56;
+    border-color: rgba(223, 255, 67, 0.6);
+    background: rgba(223, 255, 67, 0.12);
+}
+
+.shop-elemental-effect[data-effect="cyberBleed"] {
+    color: #70cfff;
+    border-color: rgba(22, 141, 255, 0.6);
+    background: rgba(22, 141, 255, 0.12);
+}
+
+.shop-elemental-effect[data-effect="seismic"] {
+    color: #d5a0ff;
+    border-color: rgba(197, 140, 255, 0.6);
+    background: rgba(197, 140, 255, 0.12);
+}
+
+.shop-elemental-note {
+    margin: 2px 0 0;
+    color: #aebbd5;
+    font-size: 0.82rem;
+    line-height: 1.5;
+    text-align: center;
 }
 
 .stat-bars-container {
@@ -1496,6 +1580,53 @@ canvas#gameCanvas {
     .touch-btn-action {
         width: 50px;
         height: 50px;
+    }
+}
+
+@media (max-width: 480px) {
+    #touch-controls {
+        padding-left: max(8px, env(safe-area-inset-left));
+        padding-right: max(8px, env(safe-area-inset-right));
+    }
+
+    .touch-group-left {
+        gap: 4px;
+    }
+
+    .touch-dpad-horizontal {
+        gap: 4px;
+        padding: 4px;
+    }
+
+    .touch-btn-nav {
+        width: 42px;
+        height: 42px;
+    }
+
+    .touch-btn-jump,
+    .touch-btn-jump-alt {
+        width: 46px;
+        height: 46px;
+    }
+
+    .touch-group-right {
+        display: grid;
+        grid-template-columns: repeat(3, 42px);
+        gap: 4px;
+        padding: 5px;
+    }
+
+    .touch-btn-action {
+        width: 42px;
+        height: 42px;
+    }
+
+    .touch-btn-action .touch-icon {
+        font-size: 1rem;
+    }
+
+    .touch-btn-action .touch-text {
+        font-size: 0.43rem;
     }
 }
 

@@ -108,6 +108,10 @@
                     <button id="btn-touch-jump-alt" class="touch-btn touch-btn-jump-alt" aria-label="Salto Rápido">
                         <span class="touch-icon">▲</span>
                     </button>
+                    <button id="btn-touch-dash" class="touch-btn touch-btn-action touch-btn-dash" aria-label="Dash / Esquiva Rápida">
+                        <span class="touch-icon">⚡</span>
+                        <span class="touch-text">DASH</span>
+                    </button>
                     <button id="btn-touch-light" class="touch-btn touch-btn-action touch-btn-light" aria-label="Ataque Rápido">
                         <span class="touch-icon">⚔️</span>
                         <span class="touch-text">RÁPIDO</span>
@@ -132,6 +136,7 @@
             <div class="btn-container">
                 <button id="btn-play-single" class="btn">1 JUGADOR</button>
                 <button id="btn-play-two" class="btn">2 JUGADORES</button>
+                <button id="btn-play-survival" class="btn btn-purple">MODO SUPERVIVENCIA</button>
                 <button id="btn-shop" class="btn">TIENDA / ARMAS</button>
                 <button id="btn-customize" class="btn btn-purple">PERSONALIZAR STICKMAN</button>
                 <button id="btn-controls" class="btn">CONTROLES</button>
@@ -168,6 +173,7 @@
                 <div id="shop-container" class="shop-grid">
                     <!-- Tarjetas dinámicas de armas inyectadas por JS -->
                 </div>
+                <p class="shop-elemental-note">Cada arma tiene un efecto elemental único; los jefes reducen un 50% la duración del aturdimiento, la congelación y el electrochoque.</p>
                 <button id="btn-close-shop" class="btn" style="margin-top: 14px;">VOLVER</button>
             </div>
         </div>
@@ -297,6 +303,7 @@
                         <p><strong style="color: var(--neon-cyan);">S:</strong> Agacharse (acción secundaria)</p>
                         <p><strong style="color: var(--neon-cyan);">F:</strong> Ataque</p>
                         <p><strong style="color: var(--neon-cyan);">Q:</strong> Cambiar arma</p>
+                        <p><strong style="color: var(--neon-purple);">MAYÚS IZQUIERDO:</strong> Dash / esquiva rápida</p>
                         <p><strong style="color: var(--neon-yellow);">Compatibilidad anterior:</strong> Espacio salta; J/K/L mantienen ataque rápido/pesado/especial.</p>
                         <p><strong style="color: var(--neon-yellow);">[P] / [Escape]:</strong> Pausa</p>
                     </div>
@@ -307,7 +314,7 @@
                         <p><strong style="color: var(--neon-cyan);">↑:</strong> Saltar</p>
                         <p><strong style="color: var(--neon-cyan);">↓:</strong> Agacharse (acción secundaria)</p>
                         <p><strong style="color: var(--neon-cyan);">ENTER:</strong> Ataque</p>
-                        <p><strong style="color: var(--neon-cyan);">MAYÚS DERECHO:</strong> Cambiar arma</p>
+                        <p><strong style="color: var(--neon-purple);">MAYÚS DERECHO:</strong> Dash / esquiva rápida</p>
                     </div>
                     <hr style="border-color: rgba(0,243,255,0.25); margin: 12px 0;">
                     <div style="margin-bottom: 12px;">
@@ -323,6 +330,7 @@
                         <h4 style="color: var(--neon-cyan); font-family: var(--font-heading); margin-bottom: 6px;">📱 CONTROLES MÓVIL / CELULAR:</h4>
                         <p><strong style="color: var(--neon-cyan);">[◀] / [▶]:</strong> Desplazarse (puedes mantener y deslizar el dedo fluidamente)</p>
                         <p><strong style="color: var(--neon-cyan);">[▲ SALTO]:</strong> Saltar sobre plataformas y enemigos (en mano izquierda y derecha)</p>
+                        <p><strong style="color: var(--neon-purple);">[⚡ DASH]:</strong> Esquiva rápida con invulnerabilidad temporal</p>
                         <p><strong style="color: var(--neon-cyan);">[⚔️ RÁPIDO]:</strong> Golpe ágil de plasma</p>
                         <p><strong style="color: var(--neon-yellow);">[💥 PESADO]:</strong> Golpe contundente de alto daño</p>
                         <p><strong style="color: var(--neon-pink);">[⚡ ESPECIAL]:</strong> Habilidad definitiva (parpadea al alcanzar 100⚡)</p>

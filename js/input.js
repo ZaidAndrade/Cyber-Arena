@@ -16,7 +16,8 @@ class InputManager {
                 KeyJ: ['legacyLight'],
                 KeyK: ['legacyHeavy'],
                 KeyL: ['legacySpecial'],
-                KeyQ: ['weaponNext']
+                KeyQ: ['weaponNext'],
+                ShiftLeft: ['dash']
             },
             p2: {
                 ArrowLeft: ['moveLeft'],
@@ -24,7 +25,7 @@ class InputManager {
                 ArrowUp: ['jump'],
                 ArrowDown: ['crouch'],
                 Enter: ['attack'],
-                ShiftRight: ['weaponNext']
+                ShiftRight: ['dash']
             }
         };
         this.sources = {
@@ -32,6 +33,7 @@ class InputManager {
             p2: { keyboard: new Set(), touch: new Set(), gamepad: new Set() }
         };
         this.attackQueues = { p1: [], p2: [] };
+        this.dashQueues = { p1: 0, p2: 0 };
         this.weaponQueues = { p1: 0, p2: 0 };
         this.keyboardActions = { p1: new Map(), p2: new Map() };
         this.connectedGamepads = new Map();
@@ -50,7 +52,8 @@ class InputManager {
     }
 
     onKeyDown(event) {
-        if (event.target instanceof HTMLSelectElement) return;
+        const isDashKey = event.code === 'ShiftLeft' || event.code === 'ShiftRight';
+        if (event.target instanceof HTMLSelectElement && !isDashKey) return;
         if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(event.code)) {
             event.preventDefault();
         }
@@ -71,6 +74,10 @@ class InputManager {
             for (const action of actions) {
                 if (action === 'weaponNext') {
                     if (!event.repeat) this.weaponQueues[playerId]++;
+                    continue;
+                }
+                if (action === 'dash') {
+                    if (!event.repeat) this.dashQueues[playerId]++;
                     continue;
                 }
                 if (action === 'legacyLight' || action === 'legacyHeavy' || action === 'legacySpecial') {
@@ -241,6 +248,7 @@ class InputManager {
             this.sources.p2.touch.clear();
             this.sources.p2.gamepad.clear();
             this.attackQueues.p2.length = 0;
+            this.dashQueues.p2 = 0;
             this.weaponQueues.p2 = 0;
         }
         this.pollGamepads();
@@ -273,6 +281,22 @@ class InputManager {
         return queue.splice(0);
     }
 
+    queueDash(playerId) {
+        if (!(playerId in this.dashQueues)) {
+            throw new Error(`Jugador de entrada desconocido: ${playerId}`);
+        }
+        this.dashQueues[playerId]++;
+    }
+
+    consumeDashes(playerId) {
+        if (!(playerId in this.dashQueues)) {
+            throw new Error(`Jugador de entrada desconocido: ${playerId}`);
+        }
+        const count = this.dashQueues[playerId];
+        this.dashQueues[playerId] = 0;
+        return count;
+    }
+
     consumeWeaponChanges(playerId) {
         if (!(playerId in this.weaponQueues)) {
             throw new Error(`Jugador de entrada desconocido: ${playerId}`);
@@ -285,6 +309,8 @@ class InputManager {
     clearAttacks() {
         this.attackQueues.p1.length = 0;
         this.attackQueues.p2.length = 0;
+        this.dashQueues.p1 = 0;
+        this.dashQueues.p2 = 0;
         this.weaponQueues.p1 = 0;
         this.weaponQueues.p2 = 0;
     }

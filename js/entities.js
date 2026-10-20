@@ -5,6 +5,8 @@
  */
 
 const GAME_UNIT_SPEED = 5.0;
+const PLAYER_DASH_SPEED = 25;
+const PLAYER_DASH_DURATION = 15;
 
 // El arsenal original conserva sus IDs y estadísticas; la expansión usa IDs propios.
 const WEAPONS = {
@@ -14,6 +16,8 @@ const WEAPONS = {
         kind: 'melee', damage: 15 * 0.85, reach: 44 * 0.75,
         cooldown: Math.round(22 / 1.45), windup: 4, activeFrames: 8, recovery: 4,
         impactRadius: 52 * 0.75, color: '#00ffcc',
+        elementalEffect: 'virus',
+        effectLabel: 'Virus Neón',
         desc: 'Súper rápida, bajo consumo y velocidad de ráfaga.'
     },
     sword: {
@@ -22,6 +26,8 @@ const WEAPONS = {
         kind: 'melee', damage: 15 * 1.5, reach: 44 * 1.35,
         cooldown: Math.round(22 / 1.0), windup: 5, activeFrames: 10, recovery: 5,
         impactRadius: 52 * 1.35, color: '#00f3ff',
+        elementalEffect: 'plasma',
+        effectLabel: 'Quemadura de Plasma',
         desc: '+50% Daño, +35% Alcance, hoja de plasma equilibrada.'
     },
     plasma: {
@@ -30,6 +36,8 @@ const WEAPONS = {
         kind: 'melee', damage: 15 * 2.2, reach: 44 * 1.6,
         cooldown: Math.round(22 / 1.1), windup: 5, activeFrames: 9, recovery: 4,
         impactRadius: 52 * 1.6, color: '#ff00aa',
+        elementalEffect: 'plasmaDevastating',
+        effectLabel: 'Plasma Incandescente + Armadura -15%',
         desc: 'Daño devastador con ráfagas y estela de partículas.'
     },
     hammer: {
@@ -38,12 +46,16 @@ const WEAPONS = {
         kind: 'melee', damage: 15 * 3.5, reach: 44 * 1.85,
         cooldown: Math.round(22 / 0.65), windup: 9, activeFrames: 11, recovery: 14,
         impactRadius: 52 * 1.85, color: '#b000ff',
+        elementalEffect: 'shock',
+        effectLabel: 'Aturdimiento y Onda Expansiva',
         desc: 'Poder cósmico destructor y onda expansiva colosal.'
     },
     whip: {
         id: 'whip', name: 'LÁTIGO DE NEÓN', price: 1800, damage: 12, damageMult: 0.9,
         reach: 132, reachMult: 2.2, speed: 0.9, cooldown: 34, windup: 6,
         activeFrames: 10, recovery: 8, kind: 'whip', expansion: true, color: '#00ffcc',
+        elementalEffect: 'electric',
+        effectLabel: 'Electrochoque en Cadena',
         impactRadius: 42,
         desc: 'Barrido de arco de largo alcance; golpea a varios enemigos.'
     },
@@ -52,12 +64,16 @@ const WEAPONS = {
         reach: 560, reachMult: 2.4, speed: 1.0, cooldown: 28, windup: 5,
         activeFrames: 1, recovery: 6, projectileSpeed: 10, impactRadius: 13,
         kind: 'projectile', expansion: true, color: '#37e7ff',
+        elementalEffect: 'cryo',
+        effectLabel: 'Ralentización y Congelación Crio',
         desc: 'Dispara proyectiles de energía con alcance largo.'
     },
     cyberDaggers: {
         id: 'cyberDaggers', name: 'DAGAS CIBERNÉTICAS', price: 1200, damage: 7, damageMult: 0.55,
         reach: 48, reachMult: 0.8, speed: 1.9, cooldown: 12, windup: 1,
         activeFrames: 5, recovery: 4, impactRadius: 24, kind: 'melee', expansion: true, color: '#a7ffec',
+        elementalEffect: 'cyberBleed',
+        effectLabel: 'Desangrado Cibernético (3 cargas)',
         desc: 'Golpes cuerpo a cuerpo veloces con alcance corto.'
     },
     seismicHammer: {
@@ -65,6 +81,8 @@ const WEAPONS = {
         reach: 142, reachMult: 1.5, speed: 0.62, cooldown: 68, windup: 18,
         activeFrames: 1, recovery: 24, impactRadius: 142, kind: 'aoe', expansion: true,
         color: '#c58cff',
+        elementalEffect: 'seismic',
+        effectLabel: 'Choque Sísmico y Derribo',
         desc: 'Golpe pesado telegrafiado con onda sísmica de área.'
     }
 };
@@ -234,6 +252,106 @@ class ExplosionEffect {
     }
 }
 
+class ShockwaveEffect extends ExplosionEffect {
+    draw(ctx) {
+        if (this.life <= 0) return;
+        const progress = 1 - this.life / this.maxLife;
+        const alpha = this.life / this.maxLife;
+        const radius = Math.max(1, progress * this.radius);
+
+        ctx.save();
+        ctx.globalAlpha = alpha;
+        ctx.lineWidth = 7 * alpha + 2;
+        ctx.strokeStyle = this.color;
+        ctx.shadowColor = this.color;
+        ctx.shadowBlur = 24;
+        ctx.beginPath();
+        ctx.ellipse(this.x, this.y, radius, Math.max(3, radius * 0.18), 0, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.globalAlpha = alpha * 0.55;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.ellipse(this.x, this.y, radius * 0.68, Math.max(2, radius * 0.12), 0, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.restore();
+    }
+}
+
+class ElectricArcEffect {
+    constructor(x1, y1, x2, y2, color = '#dfff43') {
+        this.x1 = x1;
+        this.y1 = y1;
+        this.x2 = x2;
+        this.y2 = y2;
+        this.color = color;
+        this.life = 12;
+        this.maxLife = 12;
+        this.jag = Array.from({ length: 7 }, () => (Math.random() - 0.5) * 18);
+    }
+
+    update() {
+        this.life--;
+    }
+
+    draw(ctx) {
+        if (this.life <= 0) return;
+        ctx.save();
+        ctx.globalAlpha = this.life / this.maxLife;
+        ctx.strokeStyle = this.color;
+        ctx.shadowColor = this.color;
+        ctx.shadowBlur = 18;
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.moveTo(this.x1, this.y1);
+        for (let index = 1; index < this.jag.length - 1; index++) {
+            const progress = index / (this.jag.length - 1);
+            ctx.lineTo(
+                this.x1 + (this.x2 - this.x1) * progress,
+                this.y1 + (this.y2 - this.y1) * progress + this.jag[index]
+            );
+        }
+        ctx.lineTo(this.x2, this.y2);
+        ctx.stroke();
+        ctx.restore();
+    }
+}
+
+class SeismicCrackEffect {
+    constructor(x, y, direction) {
+        this.x = x;
+        this.y = y;
+        this.direction = direction;
+        this.color = '#db8cff';
+        this.life = 48;
+        this.maxLife = 48;
+    }
+
+    update() {
+        this.life--;
+    }
+
+    draw(ctx) {
+        if (this.life <= 0) return;
+        ctx.save();
+        ctx.globalAlpha = this.life / this.maxLife;
+        ctx.strokeStyle = this.color;
+        ctx.shadowColor = this.color;
+        ctx.shadowBlur = 12;
+        ctx.lineWidth = 2.5;
+        for (let branch = 0; branch < 3; branch++) {
+            const startX = this.x + this.direction * branch * 13;
+            const length = 18 + branch * 9;
+            ctx.beginPath();
+            ctx.moveTo(startX, this.y);
+            ctx.lineTo(startX + this.direction * length * 0.55, this.y - 4 - branch);
+            ctx.lineTo(startX + this.direction * length, this.y + 3);
+            ctx.lineTo(startX + this.direction * (length + 9), this.y - 3);
+            ctx.stroke();
+        }
+        ctx.restore();
+    }
+}
+
 /**
  * Texto flotante para daño, curación y monedas
  */
@@ -385,6 +503,12 @@ class Player {
         this.hitEnemies = new Set(); // Evita daño múltiple por frame en un solo swing
 
         this.invulnerableTimer = 0;
+        this.dashTimer = 0;
+        this.dashCooldown = 0;
+        this.dashDirection = 1;
+        this.dashFrame = 0;
+        this.dashReadyFlash = 0;
+        this.dashAfterimages = [];
         this.animFrame = 0;
         this.weapon = WEAPONS.whip;
         this.color = '#00f3ff';
@@ -432,6 +556,8 @@ class Player {
             this.attackWeapon = null;
             this.hitEnemies.clear();
             this.isCrouching = false;
+            this.dashTimer = 0;
+            this.dashAfterimages.length = 0;
             this.effectFrame += deltaTime;
             this.updateEffectParticles();
             if (this.combatFlashTimer > 0) this.combatFlashTimer--;
@@ -455,6 +581,35 @@ class Player {
             this.vx = speed;
             this.facingRight = true;
         }
+        const wasDashCoolingDown = this.dashCooldown > 0;
+        if (wasDashCoolingDown) {
+            this.dashCooldown = Math.max(0, this.dashCooldown - deltaTime);
+            if (this.dashCooldown === 0) this.dashReadyFlash = 60;
+        }
+        if (this.dashReadyFlash > 0) {
+            this.dashReadyFlash = Math.max(0, this.dashReadyFlash - deltaTime);
+        }
+        for (let index = this.dashAfterimages.length - 1; index >= 0; index--) {
+            this.dashAfterimages[index].life -= deltaTime;
+            if (this.dashAfterimages[index].life <= 0) this.dashAfterimages.splice(index, 1);
+        }
+
+        if (actions.dash && this.dashCooldown <= 0) {
+            this.dashDirection = actions.moveLeft && !actions.moveRight
+                ? -1
+                : actions.moveRight && !actions.moveLeft
+                    ? 1
+                    : this.facingRight ? 1 : -1;
+            this.facingRight = this.dashDirection > 0;
+            this.dashTimer = PLAYER_DASH_DURATION;
+            this.dashCooldown = 72;
+            this.invulnerableTimer = Math.max(this.invulnerableTimer, 24);
+            this.dashFrame = 0;
+            this.dashReadyFlash = 0;
+            this.dashAfterimages.length = 0;
+            this.vy = 0;
+        }
+
         this.vx += this.knockbackVx;
         this.knockbackVx *= Math.pow(0.82, deltaTime);
         this.effectFrame += deltaTime;
@@ -468,9 +623,28 @@ class Player {
         this.isCrouching = actions.crouch;
 
         // Gravedad e integración física
-        this.vy += 0.58 * deltaTime;
-        this.x += this.vx * deltaTime;
-        this.y += this.vy * deltaTime;
+        if (this.dashTimer > 0) {
+            if (this.dashFrame % 3 === 0) {
+                this.dashAfterimages.push({
+                    x: this.x,
+                    y: this.y,
+                    facingRight: this.dashDirection > 0,
+                    color: this.accentColor || this.effects.color || this.color,
+                    life: 14,
+                    maxLife: 14
+                });
+                if (this.dashAfterimages.length > 5) this.dashAfterimages.shift();
+            }
+            this.dashFrame += deltaTime;
+            this.vx = this.dashDirection * PLAYER_DASH_SPEED;
+            this.vy = 0;
+            this.x += this.vx * deltaTime;
+            this.dashTimer = Math.max(0, this.dashTimer - deltaTime);
+        } else {
+            this.vy += 0.58 * deltaTime;
+            this.x += this.vx * deltaTime;
+            this.y += this.vy * deltaTime;
+        }
 
         // Límites horizontales de la arena (No salir de pantalla)
         const margin = 25;
@@ -510,6 +684,9 @@ class Player {
             if (this.isGrounded && Math.abs(this.vx) > speed * 0.7 &&
                 this.effects.runTrail && this.effectFrame % 4 === 0) {
                 this.emitEffectBurst('trail', 1, this.facingRight ? -1 : 1);
+            }
+            if (this.dashTimer > 0 && this.effects.dashTrail && this.effectFrame % 2 < deltaTime) {
+                this.emitEffectBurst('dash', 3, this.dashDirection);
             }
             if (Math.abs(this.knockbackVx) > 4.5 && this.effects.dashTrail && this.effectFrame % 2 === 0) {
                 this.emitEffectBurst('dash', 2, this.knockbackVx > 0 ? -1 : 1);
@@ -710,6 +887,7 @@ class Player {
     }
 
     draw(ctx) {
+        this.drawDashAfterimages(ctx);
         this.drawEffects(ctx);
         ctx.save();
         ctx.translate(this.x, this.y);
@@ -725,8 +903,10 @@ class Player {
             ctx.shadowColor = '#d9f7ff';
             ctx.shadowBlur = 14;
             ctx.setLineDash([6, 6]);
-        } else if (this.invulnerableTimer > 0 && Math.floor(Date.now() / 60) % 2 === 0) {
-            ctx.globalAlpha = 0.35;
+        } else if (this.invulnerableTimer > 0) {
+            ctx.globalAlpha = this.dashTimer > 0
+                ? 0.6 + Math.sin(Date.now() / 25) * 0.2
+                : Math.floor(Date.now() / 60) % 2 === 0 ? 0.35 : 1;
         }
 
         const dir = this.facingRight ? 1 : -1;
@@ -767,20 +947,13 @@ class Player {
         ctx.lineTo(Math.sin(this.legAngle) * legLen * dir, 10 + Math.cos(this.legAngle) * legLen);
         ctx.stroke();
 
-        // Brazos articulados
-        const armX = Math.cos(this.armAngle) * 16 * dir;
-        const armY = -7 + Math.sin(this.armAngle) * 10;
-        ctx.beginPath();
-        ctx.moveTo(0, -7);
-        ctx.lineTo(armX, armY);
-        ctx.stroke();
-
-        // Renderizado del arma equipada y su estela
+        // El punto local (0, 0) del arma coincide con la articulación de la mano.
+        const armX = dir * 14;
+        const armY = -this.height * 0.2 + 2 + Math.sin(this.armAngle) * 2;
         const weapon = this.isAttacking
             ? (this.attackWeapon || this.weapon || WEAPONS.whip)
             : (this.weapon || WEAPONS.whip);
-        const wColor = weapon.color;
-        const reach = 32 * weapon.reachMult;
+        this.drawArms(ctx, armX, armY, weapon.id === 'cyberDaggers');
 
         if (this.isGhost) {
             ctx.strokeStyle = '#d9f7ff';
@@ -797,96 +970,17 @@ class Player {
             return;
         }
 
-        if (this.isAttacking) {
-            ctx.strokeStyle = wColor;
-            ctx.shadowColor = wColor;
-            ctx.shadowBlur = 24;
-            ctx.lineWidth = this.attackType === 'heavy' ? 7 : (this.attackType === 'special' ? 9 : 5);
-
-            if (weapon.kind === 'whip') {
-                const swingProgress = Math.min(1, this.attackElapsed / Math.max(1, weapon.windup + weapon.activeFrames));
-                ctx.lineWidth = 6;
-                ctx.beginPath();
-                ctx.moveTo(armX, armY);
-                ctx.quadraticCurveTo(
-                    weapon.reach * 0.46 * dir,
-                    -42 - Math.sin(swingProgress * Math.PI) * 34,
-                    weapon.reach * dir,
-                    5
-                );
-                ctx.stroke();
-                ctx.globalAlpha = 0.4;
-                ctx.lineWidth = 15;
-                ctx.stroke();
-            } else if (weapon.kind === 'projectile') {
-                ctx.beginPath();
-                ctx.moveTo(armX, armY);
-                ctx.lineTo(armX + 24 * dir, armY);
-                ctx.lineTo(armX + 33 * dir, armY - 5);
-                ctx.stroke();
-            } else if (weapon.kind === 'aoe') {
-                ctx.beginPath();
-                ctx.moveTo(armX, armY);
-                ctx.lineTo(armX + 20 * dir, armY + 17);
-                ctx.lineTo(armX + 28 * dir, armY + 8);
-                ctx.stroke();
-                if (this.attackElapsed < weapon.windup) {
-                    ctx.globalAlpha = 0.55;
-                    ctx.beginPath();
-                    ctx.ellipse(0, 27, weapon.impactRadius * 0.55, 13, 0, 0, Math.PI * 2);
-                    ctx.stroke();
-                }
-            } else {
-                const swingProgress = Math.min(1, this.attackElapsed / Math.max(1, weapon.windup + weapon.activeFrames));
-                const slashAngle = (1 - swingProgress) * Math.PI;
-                const wx = armX + Math.cos(slashAngle) * reach * dir;
-                const wy = armY - Math.sin(slashAngle) * reach;
-                ctx.beginPath();
-                ctx.moveTo(armX, armY);
-                ctx.lineTo(wx, wy);
-                ctx.moveTo(armX, armY + 2);
-                ctx.lineTo(wx * 0.82, wy + 7);
-                ctx.stroke();
-            }
-
-            // Onda de choque para ataque especial
-            if (this.attackType === 'special') {
-                ctx.strokeStyle = '#ffffff';
-                ctx.lineWidth = 4;
-                ctx.beginPath();
-                ctx.arc(armX, armY, reach * 1.3, -Math.PI / 3, Math.PI / 3, !this.facingRight);
-                ctx.stroke();
-            }
-        } else {
-            ctx.strokeStyle = wColor;
-            ctx.shadowColor = wColor;
-            ctx.shadowBlur = 12;
-            ctx.lineWidth = 3.5;
-            if (weapon.kind === 'whip') {
-                ctx.beginPath();
-                ctx.moveTo(armX, armY);
-                ctx.quadraticCurveTo(armX + 13 * dir, armY + 14, armX + 25 * dir, armY + 9);
-                ctx.stroke();
-            } else if (weapon.kind === 'projectile') {
-                ctx.strokeRect(armX + 2 * dir, armY - 5, 20 * dir, 10);
-                ctx.beginPath();
-                ctx.moveTo(armX + 20 * dir, armY);
-                ctx.lineTo(armX + 28 * dir, armY);
-                ctx.stroke();
-            } else if (weapon.kind === 'aoe') {
-                ctx.beginPath();
-                ctx.moveTo(armX, armY);
-                ctx.lineTo(armX + 13 * dir, armY + 9);
-                ctx.stroke();
-                ctx.strokeRect(armX + 8 * dir, armY + 5, 12 * dir, 12);
-            } else {
-                ctx.beginPath();
-                ctx.moveTo(armX, armY);
-                ctx.lineTo(armX + 14 * dir, armY + 12);
-                ctx.moveTo(armX, armY + 3);
-                ctx.lineTo(armX + 11 * dir, armY + 17);
-                ctx.stroke();
-            }
+        this.drawWeapon(ctx, weapon, armX, armY, dir);
+        ctx.fillStyle = cyan;
+        ctx.shadowColor = cyan;
+        ctx.shadowBlur = 8;
+        ctx.beginPath();
+        ctx.arc(armX, armY, 3, 0, Math.PI * 2);
+        ctx.fill();
+        if (weapon.id === 'cyberDaggers') {
+            ctx.beginPath();
+            ctx.arc(-armX, armY, 3, 0, Math.PI * 2);
+            ctx.fill();
         }
 
         ctx.restore();
@@ -898,7 +992,355 @@ class Player {
         ctx.shadowColor = ctx.fillStyle;
         ctx.shadowBlur = 10;
         ctx.fillText(this.nickname || this.playerId, this.x, this.y - 43);
+        const cooldownRatio = this.dashCooldown / 72;
+        const dashReady = this.dashCooldown <= 0;
+        const indicatorColor = dashReady ? '#00ffcc' : '#b000ff';
+        ctx.font = "700 9px 'Orbitron', sans-serif";
+        ctx.fillStyle = indicatorColor;
+        ctx.shadowColor = indicatorColor;
+        ctx.shadowBlur = this.dashReadyFlash > 0 ? 14 : 8;
+        ctx.fillText(
+            this.dashReadyFlash > 0 ? 'DASH LISTO!' : dashReady ? 'DASH OK' : `DASH ${(this.dashCooldown / 60).toFixed(1)}s`,
+            this.x,
+            this.y - 55
+        );
+        ctx.shadowBlur = 0;
+        ctx.fillStyle = 'rgba(12, 16, 32, 0.85)';
+        ctx.fillRect(this.x - 18, this.y - 51, 36, 3);
+        ctx.fillStyle = indicatorColor;
+        ctx.fillRect(this.x - 18, this.y - 51, 36 * (1 - cooldownRatio), 3);
         ctx.restore();
+    }
+
+    drawArms(ctx, handX, handY, dualWield = false) {
+        const shoulderY = -this.height * 0.2;
+        ctx.beginPath();
+        ctx.moveTo(0, shoulderY);
+        ctx.lineTo(handX, handY);
+        if (dualWield) {
+            ctx.moveTo(0, shoulderY);
+            ctx.lineTo(-handX, handY);
+        }
+        ctx.stroke();
+    }
+
+    drawWeapon(ctx, weapon, armX, armY, direction) {
+        const reach = Math.max(24, weapon.reach || 40);
+        const attacking = this.isAttacking;
+        const progress = attacking
+            ? Math.max(0, Math.min(1, this.attackElapsed / Math.max(1, weapon.windup + weapon.activeFrames)))
+            : 0;
+        const swingAngle = attacking ? (progress - 0.5) * 0.9 : -0.12;
+
+        ctx.save();
+        ctx.translate(armX, armY);
+        ctx.scale(direction, 1);
+        ctx.rotate(swingAngle);
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+        ctx.lineWidth = 3;
+        ctx.strokeStyle = weapon.color;
+        ctx.fillStyle = weapon.color;
+        ctx.shadowColor = weapon.color;
+        ctx.shadowBlur = attacking ? 24 : 13;
+
+        switch (weapon.id) {
+            case 'dagger': {
+                const bladeLength = reach;
+                ctx.strokeStyle = '#00ffcc';
+                ctx.fillStyle = 'rgba(0, 255, 204, 0.42)';
+                ctx.beginPath();
+                ctx.moveTo(7, -4);
+                ctx.lineTo(bladeLength, 0);
+                ctx.lineTo(7, 4);
+                ctx.closePath();
+                ctx.fill();
+                ctx.stroke();
+                ctx.strokeStyle = '#ffffff';
+                ctx.lineWidth = 1.5;
+                ctx.beginPath();
+                ctx.moveTo(10, 0);
+                ctx.lineTo(bladeLength - 2, 0);
+                ctx.stroke();
+                ctx.strokeStyle = '#d9fff7';
+                ctx.lineWidth = 4;
+                ctx.beginPath();
+                ctx.moveTo(5, -7);
+                ctx.lineTo(5, 7);
+                ctx.moveTo(4, 0);
+                ctx.lineTo(-5, 0);
+                ctx.stroke();
+                break;
+            }
+            case 'sword': {
+                const bladeLength = reach;
+                ctx.strokeStyle = '#00f3ff';
+                ctx.fillStyle = 'rgba(0, 243, 255, 0.42)';
+                ctx.beginPath();
+                ctx.moveTo(8, -5);
+                ctx.lineTo(bladeLength - 4, -2);
+                ctx.lineTo(bladeLength, 0);
+                ctx.lineTo(bladeLength - 4, 2);
+                ctx.lineTo(8, 5);
+                ctx.closePath();
+                ctx.fill();
+                ctx.stroke();
+                ctx.strokeStyle = '#ffffff';
+                ctx.lineWidth = 2.5;
+                ctx.beginPath();
+                ctx.moveTo(10, 0);
+                ctx.lineTo(bladeLength - 4, 0);
+                ctx.stroke();
+                ctx.strokeStyle = '#b8ffff';
+                ctx.lineWidth = 4;
+                ctx.beginPath();
+                ctx.moveTo(7, -8);
+                ctx.lineTo(7, 8);
+                ctx.moveTo(4, 0);
+                ctx.lineTo(-7, 0);
+                ctx.stroke();
+                ctx.fillStyle = '#ffffff';
+                ctx.fillRect(-1, -3, 5, 6);
+                break;
+            }
+            case 'plasma': {
+                const bladeLength = reach;
+                ctx.strokeStyle = '#ff00aa';
+                ctx.fillStyle = 'rgba(255, 0, 170, 0.5)';
+                ctx.beginPath();
+                ctx.moveTo(8, -8);
+                ctx.lineTo(bladeLength * 0.42, -7);
+                ctx.lineTo(bladeLength * 0.52, -11);
+                ctx.lineTo(bladeLength * 0.65, -6);
+                ctx.lineTo(bladeLength - 4, -3);
+                ctx.lineTo(bladeLength, 0);
+                ctx.lineTo(bladeLength - 4, 3);
+                ctx.lineTo(bladeLength * 0.68, 7);
+                ctx.lineTo(bladeLength * 0.54, 4);
+                ctx.lineTo(bladeLength * 0.4, 9);
+                ctx.lineTo(8, 7);
+                ctx.closePath();
+                ctx.fill();
+                ctx.stroke();
+                ctx.strokeStyle = '#ffd6f5';
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.moveTo(12, 0);
+                ctx.lineTo(bladeLength - 5, 0);
+                ctx.stroke();
+                for (let index = 0; index < 3; index++) {
+                    const x = bladeLength * (0.35 + index * 0.2);
+                    ctx.fillStyle = index % 2 ? '#ffccf2' : '#ff4dcc';
+                    ctx.beginPath();
+                    ctx.arc(x, (index % 2 ? -1 : 1) * (6 + Math.sin(Date.now() / 55 + index) * 3), 2.2, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+                ctx.strokeStyle = '#ffc4ef';
+                ctx.lineWidth = 5;
+                ctx.beginPath();
+                ctx.moveTo(5, -9);
+                ctx.lineTo(5, 9);
+                ctx.moveTo(4, 0);
+                ctx.lineTo(-8, 0);
+                ctx.stroke();
+                break;
+            }
+            case 'hammer':
+            case 'seismicHammer': {
+                const handleLength = Math.max(38, reach - (weapon.id === 'hammer' ? 17 : 25));
+                const headWidth = weapon.id === 'hammer' ? 29 : 35;
+                const headHeight = weapon.id === 'hammer' ? 25 : 31;
+                ctx.strokeStyle = '#eadbff';
+                ctx.lineWidth = weapon.id === 'hammer' ? 7 : 9;
+                ctx.beginPath();
+                ctx.moveTo(3, 3);
+                ctx.lineTo(handleLength, -headHeight * 0.18);
+                ctx.stroke();
+                ctx.strokeStyle = '#7d37c7';
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.moveTo(7, 3);
+                ctx.lineTo(handleLength, -headHeight * 0.18);
+                ctx.stroke();
+                const headX = handleLength - 3;
+                ctx.fillStyle = weapon.id === 'hammer' ? '#8d42df' : '#9450d1';
+                ctx.strokeStyle = weapon.id === 'hammer' ? '#e3b8ff' : '#f1d7ff';
+                ctx.lineWidth = 3;
+                ctx.beginPath();
+                ctx.moveTo(headX - headWidth * 0.42, -headHeight * 0.65);
+                ctx.lineTo(headX + headWidth * 0.35, -headHeight * 0.65);
+                ctx.lineTo(headX + headWidth * 0.52, -headHeight * 0.42);
+                ctx.lineTo(headX + headWidth * 0.52, headHeight * 0.42);
+                ctx.lineTo(headX + headWidth * 0.35, headHeight * 0.65);
+                ctx.lineTo(headX - headWidth * 0.42, headHeight * 0.65);
+                ctx.closePath();
+                ctx.fill();
+                ctx.stroke();
+                ctx.fillStyle = '#f7eaff';
+                ctx.shadowBlur = 8;
+                ctx.fillRect(headX - headWidth * 0.25, -3, headWidth * 0.5, 6);
+                if (weapon.id === 'seismicHammer' && attacking &&
+                    this.attackElapsed >= weapon.windup &&
+                    this.attackElapsed < weapon.windup + weapon.activeFrames) {
+                    ctx.globalAlpha = 0.7;
+                    ctx.strokeStyle = '#dba7ff';
+                    ctx.lineWidth = 2;
+                    ctx.beginPath();
+                    ctx.ellipse(0, 43, reach * 0.7, 7, 0, 0, Math.PI * 2);
+                    ctx.stroke();
+                }
+                break;
+            }
+            case 'whip': {
+                const whipReach = weapon.reach;
+                const wave = attacking ? Math.sin(progress * Math.PI) : 0.15;
+                const tipY = attacking ? 6 - wave * 52 : 8;
+                ctx.strokeStyle = '#00ffcc';
+                ctx.lineWidth = attacking ? 4 : 3;
+                ctx.beginPath();
+                ctx.moveTo(4, 0);
+                ctx.bezierCurveTo(
+                    whipReach * 0.28, -28 - wave * 26,
+                    whipReach * 0.7, 35 - wave * 52,
+                    whipReach, tipY
+                );
+                ctx.stroke();
+                ctx.fillStyle = '#e3ffff';
+                [0.28, 0.52, 0.76, 0.94].forEach((point, index) => {
+                    const nodeX = whipReach * point;
+                    const nodeY = Math.sin(progress * Math.PI + point * Math.PI) * (attacking ? 12 : 3);
+                    ctx.beginPath();
+                    ctx.arc(nodeX, nodeY, index === 3 ? 3 : 2, 0, Math.PI * 2);
+                    ctx.fill();
+                });
+                if (attacking) {
+                    ctx.globalAlpha = 0.2;
+                    ctx.lineWidth = 12;
+                    ctx.stroke();
+                }
+                break;
+            }
+            case 'blaster': {
+                ctx.fillStyle = '#12475b';
+                ctx.strokeStyle = '#37e7ff';
+                ctx.lineWidth = 2.5;
+                ctx.beginPath();
+                ctx.moveTo(-4, -7);
+                ctx.lineTo(18, -7);
+                ctx.lineTo(25, -3);
+                ctx.lineTo(25, 3);
+                ctx.lineTo(18, 7);
+                ctx.lineTo(4, 7);
+                ctx.lineTo(0, 13);
+                ctx.lineTo(-5, 13);
+                ctx.lineTo(-2, 4);
+                ctx.closePath();
+                ctx.fill();
+                ctx.stroke();
+                ctx.fillStyle = '#9ff8ff';
+                ctx.fillRect(7, -3, 12, 2);
+                ctx.fillStyle = '#00f3ff';
+                ctx.shadowBlur = 18;
+                ctx.beginPath();
+                ctx.arc(23, 0, attacking ? 4 : 2.5, 0, Math.PI * 2);
+                ctx.fill();
+                break;
+            }
+            case 'cyberDaggers': {
+                const bladeLength = reach;
+                const drawDagger = (offsetY, angle) => {
+                    ctx.save();
+                    ctx.translate(0, offsetY);
+                    ctx.rotate(angle);
+                    ctx.strokeStyle = '#168dff';
+                    ctx.fillStyle = 'rgba(36, 119, 255, 0.38)';
+                    ctx.lineWidth = 2.5;
+                    ctx.beginPath();
+                    ctx.moveTo(5, -3);
+                    ctx.lineTo(bladeLength, 0);
+                    ctx.lineTo(5, 3);
+                    ctx.closePath();
+                    ctx.fill();
+                    ctx.stroke();
+                    ctx.strokeStyle = '#c9f6ff';
+                    ctx.lineWidth = 1.5;
+                    ctx.beginPath();
+                    ctx.moveTo(8, 0);
+                    ctx.lineTo(bladeLength - 2, 0);
+                    ctx.stroke();
+                    ctx.restore();
+                };
+                drawDagger(-5, attacking ? -0.28 : -0.16);
+                drawDagger(5, attacking ? 0.28 : 0.16);
+                ctx.strokeStyle = '#a7ffec';
+                ctx.lineWidth = 3;
+                ctx.beginPath();
+                ctx.moveTo(4, -7);
+                ctx.lineTo(4, 7);
+                ctx.stroke();
+                break;
+            }
+            default:
+                ctx.restore();
+                throw new RangeError(`No existe un dibujo para el arma: ${weapon.id}`);
+        }
+
+        ctx.restore();
+
+        if (weapon.id === 'cyberDaggers') {
+            ctx.save();
+            ctx.translate(-armX, armY);
+            ctx.scale(direction, 1);
+            ctx.rotate(attacking ? 0.22 : 0.12);
+            ctx.strokeStyle = '#168dff';
+            ctx.fillStyle = 'rgba(36, 119, 255, 0.38)';
+            ctx.shadowColor = '#45b8ff';
+            ctx.shadowBlur = 14;
+            ctx.lineWidth = 2.5;
+            ctx.beginPath();
+            ctx.moveTo(3, -3);
+            ctx.lineTo(reach * 0.82, 0);
+            ctx.lineTo(3, 3);
+            ctx.closePath();
+            ctx.fill();
+            ctx.stroke();
+            ctx.strokeStyle = '#c9f6ff';
+            ctx.lineWidth = 1.5;
+            ctx.beginPath();
+            ctx.moveTo(6, 0);
+            ctx.lineTo(reach * 0.78, 0);
+            ctx.stroke();
+            ctx.restore();
+        }
+    }
+
+    drawDashAfterimages(ctx) {
+        this.dashAfterimages.forEach(image => {
+            const alpha = (image.life / image.maxLife) * 0.45;
+            const direction = image.facingRight ? 1 : -1;
+            ctx.save();
+            ctx.translate(image.x, image.y);
+            ctx.globalAlpha = alpha;
+            ctx.strokeStyle = image.color;
+            ctx.shadowColor = image.color;
+            ctx.shadowBlur = 18;
+            ctx.lineWidth = 4;
+            ctx.lineCap = 'round';
+            ctx.beginPath();
+            ctx.arc(0, -22, 9, 0, Math.PI * 2);
+            ctx.moveTo(0, -13);
+            ctx.lineTo(0, 10);
+            ctx.moveTo(0, -7);
+            ctx.lineTo(14 * direction, -1);
+            ctx.moveTo(0, -7);
+            ctx.lineTo(-10 * direction, 1);
+            ctx.moveTo(0, 10);
+            ctx.lineTo(-8, 27);
+            ctx.moveTo(0, 10);
+            ctx.lineTo(8, 27);
+            ctx.stroke();
+            ctx.restore();
+        });
     }
 }
 
@@ -924,8 +1366,31 @@ class Enemy {
         this.shotSpeed = 0;
         this.shotTurnRate = 0;
         this.shotSpread = 0;
+        this.plasmaBurnTimer = 0;
+        this.plasmaBurnTickTimer = 30;
+        this.plasmaBurnDamage = 0;
+        this.poisonTimer = 0;
+        this.poisonTickTimer = 15;
+        this.poisonDamage = 1.2;
+        this.lastStatusDamageColor = '#ff9a35';
+        this.armorBreakTimer = 0;
+        this.cyberCutTimer = 0;
+        this.cyberCutStacks = 0;
+        this.cryoSlowTimer = 0;
+        this.cryoFreezeTimer = 0;
+        this.stunTimer = 0;
+        this.electroShockTimer = 0;
+        this.effectResistances = {
+            plasmaBurn: 1,
+            stun: 1,
+            cryoSlow: 1,
+            cryoFreeze: 1,
+            electroShock: 1
+        };
+        this.lastStatusSource = null;
 
         this.speed = GAME_UNIT_SPEED;
+        this.damageMultiplier = 1;
 
         // Estadísticas por tipo; la velocidad de desplazamiento es uniforme.
         if (type === 'basic') {
@@ -965,11 +1430,111 @@ class Enemy {
         this.animFrame = Math.random() * 10;
     }
 
-    update(player, projectiles, floorY, arenaWidth, onMeleeDamage, platforms = [], particles = null, onScreenShake = null, deltaTime = 1) {
+    applyElementalStatus(status, duration, source, strength = 1) {
+        const resistance = Math.max(0, Math.min(1, this.effectResistances[status] ?? 1));
+        if (resistance === 0) return false;
+
+        const adjustedDuration = duration * resistance;
+        if (status === 'poison') {
+            if (this.poisonTimer <= 0) this.poisonTickTimer = 15;
+            this.poisonTimer = Math.max(this.poisonTimer, adjustedDuration);
+            this.poisonDamage = Math.max(this.poisonDamage, strength);
+        } else if (status === 'plasmaBurn') {
+            if (this.plasmaBurnTimer <= 0) this.plasmaBurnTickTimer = 30;
+            this.plasmaBurnTimer = Math.max(this.plasmaBurnTimer, adjustedDuration);
+            this.plasmaBurnDamage = Math.max(this.plasmaBurnDamage, strength * resistance);
+        } else if (status === 'armorBreak') {
+            this.armorBreakTimer = Math.max(this.armorBreakTimer, adjustedDuration);
+        } else if (status === 'cyberCut') {
+            this.cyberCutStacks = Math.min(3, this.cyberCutStacks + 1);
+            this.cyberCutTimer = Math.max(this.cyberCutTimer, adjustedDuration);
+        } else if (status === 'cryoSlow') {
+            this.cryoSlowTimer = Math.max(this.cryoSlowTimer, adjustedDuration);
+        } else if (status === 'cryoFreeze') {
+            this.cryoFreezeTimer = Math.max(this.cryoFreezeTimer, adjustedDuration);
+        } else if (status === 'stun') {
+            this.stunTimer = Math.max(this.stunTimer, adjustedDuration);
+        } else if (status === 'electroShock') {
+            this.electroShockTimer = Math.max(this.electroShockTimer, adjustedDuration);
+        } else {
+            throw new RangeError(`Estado elemental no válido: ${status}`);
+        }
+        this.lastStatusSource = source || this.lastStatusSource;
+        return true;
+    }
+
+    updateStatusEffects(deltaTime = 1, particles = null) {
+        let burnDamage = 0;
+        const wasPoisoned = this.poisonTimer > 0;
+        if (wasPoisoned) {
+            this.poisonTimer = Math.max(0, this.poisonTimer - deltaTime);
+            this.poisonTickTimer -= deltaTime;
+            while (this.poisonTickTimer <= 0) {
+                burnDamage += this.poisonDamage;
+                this.poisonTickTimer += 15;
+                this.lastStatusDamageColor = '#9dff32';
+            }
+            if (particles && Math.random() < 0.45) {
+                particles.push(new Particle(
+                    this.x + (Math.random() - 0.5) * this.width,
+                    this.y - Math.random() * 24,
+                    (Math.random() - 0.5) * 1.8,
+                    -0.5 - Math.random() * 1.6,
+                    '#8dff00',
+                    1.5 + Math.random() * 1.5,
+                    18
+                ));
+            }
+        }
+        const wasBurning = this.plasmaBurnTimer > 0;
+        if (wasBurning) {
+            this.plasmaBurnTimer = Math.max(0, this.plasmaBurnTimer - deltaTime);
+            this.plasmaBurnTickTimer -= deltaTime;
+            while (this.plasmaBurnTickTimer <= 0) {
+                burnDamage += this.plasmaBurnDamage;
+                this.plasmaBurnTickTimer += 30;
+                this.lastStatusDamageColor = this.plasmaBurnDamage >= 4 ? '#ff45c8' : '#ff9a35';
+            }
+            if (particles && Math.random() < 0.35) {
+                particles.push(new Particle(
+                    this.x + (Math.random() - 0.5) * this.width,
+                    this.y - Math.random() * 28,
+                    (Math.random() - 0.5) * 2.5,
+                    -1 - Math.random() * 2,
+                    this.plasmaBurnDamage >= 4 ? '#ff00aa' : '#ff8a1d',
+                    2 + Math.random() * 2,
+                    18
+                ));
+            }
+        }
+        this.armorBreakTimer = Math.max(0, this.armorBreakTimer - deltaTime);
+        this.cyberCutTimer = Math.max(0, this.cyberCutTimer - deltaTime);
+        if (this.cyberCutTimer === 0) this.cyberCutStacks = 0;
+        this.cryoSlowTimer = Math.max(0, this.cryoSlowTimer - deltaTime);
+        this.cryoFreezeTimer = Math.max(0, this.cryoFreezeTimer - deltaTime);
+        this.stunTimer = Math.max(0, this.stunTimer - deltaTime);
+        this.electroShockTimer = Math.max(0, this.electroShockTimer - deltaTime);
+        return burnDamage;
+    }
+
+    update(player, projectiles, floorY, arenaWidth, onMeleeDamage, platforms = [], particles = null, onScreenShake = null, deltaTime = 1, onStatusDamage = null) {
         if (this.isDead) return;
 
+        const burnDamage = this.updateStatusEffects(deltaTime, particles);
+        if (burnDamage > 0 && onStatusDamage) onStatusDamage(burnDamage, this);
+        if (this.isDead) return;
+        if (this.cryoFreezeTimer > 0 || this.stunTimer > 0 || this.electroShockTimer > 0) {
+            this.vx = 0;
+            this.knockbackVx = 0;
+            this.isAttacking = false;
+            this.attackAnim = 0;
+            this.shotChargeTimer = 0;
+            this.shotTarget = null;
+            return;
+        }
+
         if (this.shotChargeTimer > 0) {
-            this.shotChargeTimer--;
+            this.shotChargeTimer -= this.cryoSlowTimer > 0 ? 0.5 * deltaTime : deltaTime;
             this.vx = 0;
             if (this.shotChargeTimer === 0 && this.shotTarget) {
                 const dx = this.shotTarget.x - this.x;
@@ -982,7 +1547,7 @@ class Enemy {
                     Math.sin(angle) * this.shotSpeed,
                     this.color,
                     true,
-                    5,
+                    5 * this.damageMultiplier,
                     false,
                     { target: player, turnRate: this.shotTurnRate }
                 ));
@@ -1008,7 +1573,7 @@ class Enemy {
 
             const elemental = this.elementalProfile || ELEMENTAL_ATTACKS.fire;
             const projectileColor = elemental.projectileColor || this.color;
-            const bossDamage = elemental.damage || 5;
+            const bossDamage = (elemental.damage || 5) * this.damageMultiplier;
 
             // Decaimiento del efecto visual de onda expansiva en el suelo
             if (this.shockwaveRadius > 0) {
@@ -1021,7 +1586,8 @@ class Enemy {
             // -----------------------------------------------------------------
             // ATAQUE DE LLUVIA DE PLASMA QUE CAE DIRECTAMENTE AL JUGADOR
             // -----------------------------------------------------------------
-            if (this.meteorCooldown > 0) this.meteorCooldown--;
+            const attackTimeScale = this.cryoSlowTimer > 0 ? 0.5 : 1;
+            if (this.meteorCooldown > 0) this.meteorCooldown -= attackTimeScale * deltaTime;
             if (this.meteorCooldown <= 0 && this.slamState === 'idle') {
                 this.meteorCooldown = this.phase === 3 ? 80 : (this.phase === 2 ? 100 : 120);
                 sound.playBossAlert();
@@ -1040,7 +1606,7 @@ class Enemy {
             // -----------------------------------------------------------------
             // ATAQUE DE SALTO Y CAÍDA DIRECTA DEL JEFE SOBRE EL JUGADOR (BOSS SLAM)
             // -----------------------------------------------------------------
-            if (this.slamCooldown > 0) this.slamCooldown--;
+            if (this.slamCooldown > 0) this.slamCooldown -= attackTimeScale * deltaTime;
 
             // Si el jugador está subido en una plataforma alta, el jefe prepara su caída de inmediato
             if (player.y < this.y - 65 && this.slamCooldown > 20 && this.slamState === 'idle') {
@@ -1059,7 +1625,7 @@ class Enemy {
 
             // 1. FASE DE CARGA TELEGRAFIADA (Retícula en la posición del jugador)
             if (this.slamState === 'charge') {
-                this.slamTimer--;
+                this.slamTimer -= attackTimeScale * deltaTime;
                 this.vx = 0;
                 this.slamTargetX = player.x;
                 this.slamTargetY = player.y;
@@ -1075,7 +1641,7 @@ class Enemy {
 
                 if (this.slamTimer <= 0) {
                     this.slamState = 'rising';
-                    this.vy = -19; // Gran impulso vertical ascendente
+                    this.vy = -19 * attackTimeScale; // Gran impulso vertical ascendente
                     sound.playJump();
                 }
                 return;
@@ -1104,7 +1670,7 @@ class Enemy {
             // 3. FASE DE CAÍDA DIRECTA EN PICADA SOBRE EL JUGADOR
             if (this.slamState === 'falling') {
                 this.vx = 0;
-                this.vy = 25;
+                this.vy = 25 * attackTimeScale;
 
                 if (particles) {
                     for (let p = 0; p < 2; p++) {
@@ -1151,7 +1717,7 @@ class Enemy {
                     const hitX = Math.abs(player.x - this.x) < 90;
                     const hitY = Math.abs(player.y - this.y) < 60;
                     if (hitX && hitY && onMeleeDamage) {
-                        onMeleeDamage(5);
+                        onMeleeDamage(5 * this.damageMultiplier);
                     }
                     return;
                 }
@@ -1159,7 +1725,7 @@ class Enemy {
 
             // 4. FASE DE RECUPERACIÓN TRAS EL IMPACTO
             if (this.slamState === 'recovery') {
-                this.slamTimer--;
+                this.slamTimer -= attackTimeScale * deltaTime;
                 this.vx = 0;
                 if (this.slamTimer <= 0) {
                     this.slamState = 'idle';
@@ -1171,6 +1737,7 @@ class Enemy {
         // =========================================================================
         // MOVIMIENTO Y ATAQUE VELOZ DE ENEMIGOS
         // =========================================================================
+        const movementSpeed = this.speed * (this.cryoSlowTimer > 0 ? 0.5 : 1);
         const attackRange = (this.type === 'boss') ? 80 : (this.type === 'special' ? 240 : 46);
 
         // Si el jugador está en una plataforma alta fuera del alcance vertical de cuerpo a cuerpo
@@ -1179,9 +1746,9 @@ class Enemy {
         if (dist > attackRange || playerOutOfVerticalReach) {
             if (playerOutOfVerticalReach && dist < 50) {
                 // Merodear bajo la plataforma sin congelarse en el suelo base
-                this.vx = Math.sin(this.animFrame * 0.6) * this.speed;
+                this.vx = Math.sin(this.animFrame * 0.6) * movementSpeed;
             } else {
-                this.vx = this.facingRight ? this.speed : -this.speed;
+                this.vx = this.facingRight ? movementSpeed : -movementSpeed;
             }
         } else {
             this.vx = 0;
@@ -1220,13 +1787,18 @@ class Enemy {
                     const maxMeleeY = this.type === 'boss' ? 65 : 40;
 
                     if (onMeleeDamage && dist < maxMeleeX && vertDist < maxMeleeY) {
-                        onMeleeDamage(5);
+                        onMeleeDamage(5 * this.damageMultiplier);
                     }
                 }
             }
         }
 
-        if (this.attackCooldown > 0) this.attackCooldown--;
+        if (this.attackCooldown > 0) {
+            this.attackCooldown = Math.max(
+                0,
+                this.attackCooldown - (this.cryoSlowTimer > 0 ? 0.5 : 1) * deltaTime
+            );
+        }
         if (this.attackAnim > 0) {
             this.attackAnim--;
             if (this.attackAnim <= 0) this.isAttacking = false;
@@ -1334,7 +1906,68 @@ class Enemy {
         ctx.translate(this.x, this.y);
 
         const dir = this.facingRight ? 1 : -1;
-        const c = this.type === 'boss' && this.phase === 3 ? '#ff0033' : this.color;
+        const statusColor = this.cryoFreezeTimer > 0 || this.cryoSlowTimer > 0
+            ? '#7ceeff'
+            : this.electroShockTimer > 0 ? '#e8ff4a'
+            : this.poisonTimer > 0 ? '#8dff00'
+            : this.plasmaBurnTimer > 0 && Math.floor(this.plasmaBurnTimer / 4) % 2 === 0
+                ? (this.plasmaBurnDamage >= 4 ? '#ff35c9' : '#ff8a1d')
+                : this.armorBreakTimer > 0 ? '#ff5c9a'
+                : this.type === 'boss' && this.phase === 3 ? '#ff0033' : this.color;
+        const c = statusColor;
+
+        if (this.plasmaBurnTimer > 0 || this.poisonTimer > 0 || this.cryoSlowTimer > 0 ||
+            this.cryoFreezeTimer > 0 || this.electroShockTimer > 0 || this.armorBreakTimer > 0) {
+            ctx.save();
+            ctx.globalAlpha = this.cryoFreezeTimer > 0 ? 0.42 : 0.24;
+            ctx.fillStyle = this.cryoFreezeTimer > 0 || this.cryoSlowTimer > 0
+                ? '#49dfff'
+                : this.electroShockTimer > 0 ? '#dfff43'
+                : this.poisonTimer > 0 ? '#8dff00'
+                : this.plasmaBurnDamage >= 4 ? '#ff00aa'
+                : this.armorBreakTimer > 0 ? '#ff5c9a'
+                : '#ff8a1d';
+            ctx.shadowColor = ctx.fillStyle;
+            ctx.shadowBlur = 22;
+            ctx.beginPath();
+            ctx.ellipse(0, 0, this.width * 0.75, this.height * 0.72, 0, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.restore();
+        }
+        if (this.cryoSlowTimer > 0 || this.cryoFreezeTimer > 0) {
+            ctx.save();
+            ctx.strokeStyle = '#a7f6ff';
+            ctx.fillStyle = 'rgba(124, 238, 255, 0.55)';
+            ctx.shadowColor = '#7ceeff';
+            ctx.shadowBlur = 10;
+            ctx.lineWidth = 1.5;
+            for (let index = 0; index < 5; index++) {
+                const angle = Date.now() / 500 + index * Math.PI * 2 / 5;
+                const crystalX = Math.cos(angle) * (this.width * 0.68);
+                const crystalY = -12 + Math.sin(angle) * 14;
+                ctx.beginPath();
+                ctx.moveTo(crystalX, crystalY - 5);
+                ctx.lineTo(crystalX + 3, crystalY);
+                ctx.lineTo(crystalX, crystalY + 5);
+                ctx.lineTo(crystalX - 3, crystalY);
+                ctx.closePath();
+                ctx.fill();
+                ctx.stroke();
+            }
+            ctx.restore();
+        }
+        if (this.cyberCutStacks > 0) {
+            ctx.save();
+            ctx.fillStyle = '#50cfff';
+            ctx.shadowColor = '#168dff';
+            ctx.shadowBlur = 14;
+            for (let index = 0; index < this.cyberCutStacks; index++) {
+                ctx.beginPath();
+                ctx.arc(-6 + index * 6, -this.height * 0.66, 2, 0, Math.PI * 2);
+                ctx.fill();
+            }
+            ctx.restore();
+        }
 
         ctx.strokeStyle = c;
         ctx.shadowColor = c;
@@ -1352,6 +1985,22 @@ class Enemy {
             ctx.beginPath();
             ctx.arc(0, 0, 65, 0, Math.PI * 2);
             ctx.fill();
+        }
+
+        if (this.stunTimer > 0 || this.electroShockTimer > 0) {
+            const orbit = Date.now() / 180;
+            ctx.save();
+            ctx.strokeStyle = this.electroShockTimer > 0 ? '#e8ff4a' : '#ff57f2';
+            ctx.shadowColor = ctx.strokeStyle;
+            ctx.shadowBlur = 14;
+            ctx.lineWidth = 2;
+            for (let index = 0; index < 3; index++) {
+                const angle = orbit + index * Math.PI * 2 / 3;
+                ctx.beginPath();
+                ctx.arc(Math.cos(angle) * 12, -this.height * 0.68 + Math.sin(angle) * 4, 3, 0, Math.PI * 2);
+                ctx.stroke();
+            }
+            ctx.restore();
         }
 
         // Pose de caída meteórica
