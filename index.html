@@ -9,7 +9,7 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="theme-color" content="#03030a">
     <title>NEON STICK: CYBER ARENA</title>
-    <meta name="description" content="Juego de acción y combate Cyberpunk Stickman en 2D con efectos neón, múltiples armas y combates contra jefes en 11 zonas adaptado para PC y Celular.">
+    <meta name="description" content="Juego de acción y combate Cyberpunk Stickman en 2D con efectos neón, múltiples armas y combates contra jefes en 15 zonas adaptado para PC y Celular.">
     <link rel="stylesheet" href="css/style.css">
 </head>
 
@@ -61,7 +61,11 @@
                     </div>
                     <div class="bar-container">
                         <div id="energy-bar" class="bar-fill energy-fill" style="width: 0%;"></div>
-                        <div id="energy-text" class="bar-text">⚡ ENERGÍA: 0 / 100</div>
+                        <div id="energy-text" class="bar-text">⚡ P1 ENERGÍA: 0 / 100</div>
+                    </div>
+                    <div id="p2-energy-section" class="bar-container p2-energy-section hidden">
+                        <div id="p2-energy-bar" class="bar-fill energy-fill" style="width: 0%;"></div>
+                        <div id="p2-energy-text" class="bar-text">⚡ P2 ENERGÍA: 0 / 100</div>
                     </div>
                 </div>
 
@@ -138,6 +142,7 @@
                 <button id="btn-play-two" class="btn">2 JUGADORES</button>
                 <button id="btn-play-survival" class="btn btn-purple">MODO SUPERVIVENCIA</button>
                 <button id="btn-shop" class="btn">TIENDA / ARMAS</button>
+                <button id="btn-upgrades" class="btn btn-purple">MEJORAS Y HABILIDADES</button>
                 <button id="btn-customize" class="btn btn-purple">PERSONALIZAR STICKMAN</button>
                 <button id="btn-controls" class="btn">CONTROLES</button>
                 <button id="btn-progress" class="btn">PROGRESO</button>
@@ -153,6 +158,50 @@
                 <button id="btn-resume" class="btn">CONTINUAR</button>
                 <button id="btn-pause-shop" class="btn">TIENDA DE ARMAS</button>
                 <button id="btn-quit" class="btn btn-magenta">SALIR AL MENÚ</button>
+            </div>
+        </div>
+
+        <!-- PANTALLA: MEJORAS Y HABILIDADES PERMANENTES -->
+        <div id="upgrades-overlay" class="overlay hidden">
+            <div class="panel upgrades-panel" role="dialog" aria-modal="true" aria-labelledby="upgrades-title">
+                <div id="upgrades-title" class="panel-title">ÁRBOL DE HABILIDADES</div>
+                <div class="upgrades-toolbar">
+                    <label for="upgrade-player-select">Jugador:
+                        <select id="upgrade-player-select" aria-label="Jugador de las mejoras">
+                            <option value="0">P1</option>
+                            <option value="1">P2</option>
+                        </select>
+                    </label>
+                    <div id="upgrade-coins" class="coins-display">🪙 0</div>
+                    <div id="upgrade-msg" class="upgrade-message" aria-live="polite"></div>
+                </div>
+                <div class="upgrades-grid">
+                    <article class="upgrade-card">
+                        <h3>MATRIZ VITAL</h3>
+                        <p>Refuerza el núcleo y aumenta la salud máxima del Stickman.</p>
+                        <div class="upgrade-level" id="upgrade-hp-level">Nivel 0 / 10</div>
+                        <div class="upgrade-next" id="upgrade-hp-next">Siguiente nivel: +15 HP</div>
+                        <div class="upgrade-cost" id="upgrade-hp-cost">Precio: 🪙 500</div>
+                        <button id="btn-upgrade-hp" class="btn btn-purple">MEJORAR</button>
+                    </article>
+                    <article class="upgrade-card">
+                        <h3>RECARGADOR PLASMA</h3>
+                        <p>Obtén más energía al golpear y al recibir daño.</p>
+                        <div class="upgrade-level" id="upgrade-energy-level">Nivel 0 / 10</div>
+                        <div class="upgrade-next" id="upgrade-energy-next">Siguiente nivel: +10% de energía</div>
+                        <div class="upgrade-cost" id="upgrade-energy-cost">Precio: 🪙 500</div>
+                        <button id="btn-upgrade-energy" class="btn btn-purple">MEJORAR</button>
+                    </article>
+                    <article class="upgrade-card">
+                        <h3>ALGORITMO MULTIPLICADOR</h3>
+                        <p>Aumenta las monedas ganadas por cada tramo de 5 combos.</p>
+                        <div class="upgrade-level" id="upgrade-coins-level">Nivel 0 / 10</div>
+                        <div class="upgrade-next" id="upgrade-coins-next">Siguiente nivel: +5% por cada x5 de combo</div>
+                        <div class="upgrade-cost" id="upgrade-coins-cost">Precio: 🪙 500</div>
+                        <button id="btn-upgrade-coins" class="btn btn-purple">MEJORAR</button>
+                    </article>
+                </div>
+                <button id="btn-close-upgrades" class="btn" style="margin-top: 14px;">VOLVER</button>
             </div>
         </div>
 
@@ -314,6 +363,7 @@
                         <p><strong style="color: var(--neon-cyan);">↑:</strong> Saltar</p>
                         <p><strong style="color: var(--neon-cyan);">↓:</strong> Agacharse (acción secundaria)</p>
                         <p><strong style="color: var(--neon-cyan);">ENTER:</strong> Ataque</p>
+                        <p><strong style="color: var(--neon-pink);">O:</strong> Habilidad definitiva (con 100⚡)</p>
                         <p><strong style="color: var(--neon-purple);">MAYÚS DERECHO:</strong> Dash / esquiva rápida</p>
                     </div>
                     <hr style="border-color: rgba(0,243,255,0.25); margin: 12px 0;">
@@ -368,7 +418,7 @@
         <!-- PANTALLA: VICTORIA ABSOLUTA -->
         <div id="victory-overlay" class="overlay hidden">
             <div class="neon-title" style="color: var(--neon-green); text-shadow: 0 0 25px var(--neon-green); font-size: 2.8rem;">VICTORIA ABSOLUTA</div>
-            <div class="neon-subtitle" style="color: var(--neon-cyan);">¡HAS CONQUISTADO LAS 11 ZONAS Y VENCIDO A TODOS LOS JEFES!</div>
+            <div class="neon-subtitle" style="color: var(--neon-cyan);">¡HAS CONQUISTADO LAS 15 ZONAS Y VENCIDO A TODOS LOS JEFES!</div>
             <div id="victory-stats">
                 <!-- Rellenado dinámicamente -->
             </div>
@@ -404,6 +454,7 @@
     <script src="js/music.js"></script>
     <script src="js/input.js"></script>
     <script src="js/entities.js"></script>
+    <script src="js/waves.js"></script>
     <script src="js/game.js"></script>
 </body>
 
