@@ -25,6 +25,7 @@ class InputManager {
                 ArrowUp: ['jump'],
                 ArrowDown: ['crouch'],
                 Enter: ['attack'],
+                KeyO: ['legacySpecial'],
                 ShiftRight: ['dash']
             }
         };

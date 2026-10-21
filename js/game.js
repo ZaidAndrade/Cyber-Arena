@@ -15,7 +15,11 @@ const ZONE_SCENES = [
     { name: 'EL CAIRO FUTURO', background: 'img/cairo_future.png', colors: ['#14020a', '#290615'], accent: '#ffea00' },
     { name: 'DUBÁI CYBERPUNK', background: 'img/dubai_cyberpunk.png', colors: ['#100a00', '#0b2b38'], accent: '#ffb703' },
     { name: 'RÍO DE JANEIRO NEÓN', background: 'img/rio_neon.png', colors: ['#0a0f1a', '#112d2c'], accent: '#2dd4bf' },
-    { name: 'MACHU PICCHU NEÓN', background: 'img/machu_picchu_neon.png', colors: ['#081310', '#0f2d1f'], accent: '#7ef9d8' }
+    { name: 'MACHU PICCHU NEÓN', background: 'img/machu_picchu_neon.png', colors: ['#081310', '#0f2d1f'], accent: '#7ef9d8' },
+    { name: 'ROMA ETERNA', background: 'img/rome_neon.png', colors: ['#100807', '#2b1010'], accent: '#ff9f43' },
+    { name: 'GRECIA NEÓN — ATENAS', background: 'img/greece_neon.png', colors: ['#05091b', '#17123a'], accent: '#75cfff' },
+    { name: 'RUSIA NEÓN — MOSCÚ', background: 'img/russia_neon.png', colors: ['#07101d', '#24132d'], accent: '#73d8ff' },
+    { name: 'OCÉANO ANTIGUO — ATLANTIS', background: 'img/ancient_ocean_atlantis.png', colors: ['#02131d', '#063b50'], accent: '#00e5ff' }
 ];
 
 const ZONE_BACKGROUND_IMAGES = ZONE_SCENES.map(scene => {
@@ -44,6 +48,13 @@ class Game {
     constructor() {
         this.canvas = document.getElementById('gameCanvas');
         this.ctx = this.canvas.getContext('2d');
+        const arenaStyle = getComputedStyle(this.canvas);
+        this.trapColors = {
+            electricBlue: arenaStyle.getPropertyValue('--arena-electric-blue').trim(),
+            electricYellow: arenaStyle.getPropertyValue('--arena-electric-yellow').trim(),
+            laserRed: arenaStyle.getPropertyValue('--arena-laser-red').trim(),
+            padCyan: arenaStyle.getPropertyValue('--arena-pad-cyan').trim()
+        };
 
         this.fixedStepMs = 1000 / 60;
         this.maxFrameDeltaMs = 100;
@@ -59,7 +70,7 @@ class Game {
         this.state = 'MENU'; // 'MENU', 'PLAYING', 'PAUSED', 'GAMEOVER', 'VICTORY'
         this.previousState = 'MENU';
 
-        this.currentZone = 1; // Zona actual, del 1 al 11.
+        this.currentZone = 1; // Zona actual, del 1 al 15.
         this.activeBackground = ZONE_BACKGROUND_IMAGES[this.currentZone - 1];
         this.currentWave = 1;
         this.maxWaves = 5;
@@ -73,6 +84,7 @@ class Game {
         this.player2Customization = this.loadPlayer2Customization();
         this.activePlayerIndex = 0;
         this.activeShopPlayerIndex = 0;
+        this.activeUpgradePlayerIndex = 0;
 
         this.orientationDismissed = false;
 
@@ -81,11 +93,17 @@ class Game {
         this.players = [];
         this.player = null;
         this.enemies = [];
+        this.pendingEnemySpawns = [];
+        this.enemySpawnTimer = 0;
+        this.enemySpawnInterval = 9;
         this.projectiles = [];
         this.particles = [];
         this.explosions = [];
         this.floatingTexts = [];
         this.platforms = [];
+        this.arenaElementConfig = buildArenaElementConfig(1);
+        this.jumpPads = [];
+        this.ceilingLasers = [];
 
         // Estado de controles y efectos
         this.input = new InputManager(
@@ -243,6 +261,7 @@ class Game {
         const p1Inventory = this.playerProgress[0];
         const equippedWeapon = WEAPONS[p1Inventory.equippedWeapon] || WEAPONS.sword;
         p1.weapon = equippedWeapon;
+        this.applyPlayerUpgrades(p1, 0);
         p1.color = this.customization.color;
         p1.accentColor = this.customization.accentColor;
         p1.nickname = this.customization.nickname;
@@ -259,6 +278,7 @@ class Game {
                 effects: { ...DEFAULT_PLAYER_EFFECTS, color: '#ff00aa' }
             };
             p2.weapon = WEAPONS[this.playerProgress[1].equippedWeapon] || equippedWeapon;
+            this.applyPlayerUpgrades(p2, 1);
             p2.color = p2Config.color;
             p2.accentColor = p2Config.accentColor;
             p2.nickname = p2Config.nickname;
@@ -268,6 +288,13 @@ class Game {
         }
         this.playerCount = playerCount;
         this.player = p1;
+    }
+
+    applyPlayerUpgrades(player, playerIndex) {
+        const upgrades = this.playerProgress[playerIndex].upgrades;
+        player.upgrades = { ...DEFAULT_PLAYER_UPGRADES, ...upgrades };
+        player.maxHp = 100 + player.upgrades.hpLevel * 15;
+        player.hp = player.maxHp;
     }
 
     get coins() {
@@ -469,6 +496,7 @@ class Game {
             this.width = this.canvas.width;
             this.height = this.canvas.height;
             this.setupZonePlatforms();
+            this.setupArenaElements();
             this.checkOrientation();
             this.updateHUD();
         };
@@ -659,6 +687,7 @@ class Game {
         document.getElementById('btn-play-two').onclick = () => { sound.init(); this.startGame(2); };
         document.getElementById('btn-play-survival').onclick = () => { sound.init(); this.startGame(1, true); };
         document.getElementById('btn-shop').onclick = () => { sound.init(); this.openShop(); };
+        document.getElementById('btn-upgrades').onclick = () => { sound.init(); this.openUpgrades(); };
         document.getElementById('btn-customize').onclick = () => this.openCustomization();
         document.querySelectorAll('[data-customization-player]').forEach(button => {
             button.addEventListener('click', () => {
@@ -672,6 +701,14 @@ class Game {
 
         // Botones de cierre de ventanas modales
         document.getElementById('btn-close-shop').onclick = () => this.closeShop();
+        document.getElementById('upgrade-player-select').addEventListener('change', event => {
+            this.activeUpgradePlayerIndex = Number(event.target.value);
+            this.updateUpgradeUI();
+        });
+        document.getElementById('btn-upgrade-hp').onclick = () => this.purchaseUpgrade('hpLevel');
+        document.getElementById('btn-upgrade-energy').onclick = () => this.purchaseUpgrade('energyLevel');
+        document.getElementById('btn-upgrade-coins').onclick = () => this.purchaseUpgrade('coinComboLevel');
+        document.getElementById('btn-close-upgrades').onclick = () => this.showOverlay('menu-overlay');
         document.getElementById('btn-close-controls').onclick = () => this.showOverlay('menu-overlay');
         document.getElementById('btn-close-progress').onclick = () => this.showOverlay('menu-overlay');
         document.getElementById('btn-close-customization').onclick = () => this.cancelCustomization();
@@ -818,6 +855,20 @@ class Game {
             const value = Number(saved);
             return Number.isFinite(value) && value >= 0 ? Math.floor(value) : fallback;
         };
+        const readUpgrades = key => {
+            try {
+                const saved = JSON.parse(localStorage.getItem(key) || '{}');
+                return Object.fromEntries(Object.keys(DEFAULT_PLAYER_UPGRADES).map(level => {
+                    const value = Number(saved[level]);
+                    return [level, Number.isFinite(value)
+                        ? Math.max(0, Math.min(10, Math.floor(value)))
+                        : DEFAULT_PLAYER_UPGRADES[level]];
+                }));
+            } catch (error) {
+                console.warn(`No se pudieron leer las mejoras guardadas (${key}).`, error);
+                return { ...DEFAULT_PLAYER_UPGRADES };
+            }
+        };
         const legacyInventory = readWeaponList('purchasedWeapons');
         const player1Inventory = readWeaponList('player1PurchasedWeapons');
         const player2Inventory = readWeaponList('player2PurchasedWeapons');
@@ -834,12 +885,14 @@ class Game {
             {
                 coins: readCoins('player1Coins', readCoins('playerCoins')),
                 purchasedWeapons: p1Weapons,
-                equippedWeapon: p1Equipped
+                equippedWeapon: p1Equipped,
+                upgrades: readUpgrades('player1Upgrades')
             },
             {
                 coins: readCoins('player2Coins'),
                 purchasedWeapons: p2Weapons,
-                equippedWeapon: p2Equipped
+                equippedWeapon: p2Equipped,
+                upgrades: readUpgrades('player2Upgrades')
             }
         ];
         this.bestScore = parseInt(localStorage.getItem('bestScore')) || 0;
@@ -1407,6 +1460,7 @@ class Game {
             localStorage.setItem(`player${playerNumber}Coins`, progress.coins);
             localStorage.setItem(`player${playerNumber}PurchasedWeapons`, JSON.stringify(progress.purchasedWeapons));
             localStorage.setItem(`player${playerNumber}EquippedWeapon`, progress.equippedWeapon);
+            localStorage.setItem(`player${playerNumber}Upgrades`, JSON.stringify(progress.upgrades));
         });
         localStorage.setItem('bestScore', this.bestScore);
         localStorage.setItem('totalEnemiesDefeated', this.totalKills);
@@ -1423,7 +1477,8 @@ class Game {
             localStorage.removeItem('purchasedWeapons');
             localStorage.removeItem('equippedWeapon');
             ['player1Coins', 'player1PurchasedWeapons', 'player1EquippedWeapon',
-                'player2Coins', 'player2PurchasedWeapons', 'player2EquippedWeapon']
+                'player1Upgrades', 'player2Coins', 'player2PurchasedWeapons',
+                'player2EquippedWeapon', 'player2Upgrades']
                 .forEach(key => localStorage.removeItem(key));
             localStorage.removeItem('bestScore');
             localStorage.removeItem('totalEnemiesDefeated');
@@ -1432,7 +1487,8 @@ class Game {
             this.playerProgress = [0, 1].map(() => ({
                 coins: 0,
                 purchasedWeapons: ['sword'],
-                equippedWeapon: 'sword'
+                equippedWeapon: 'sword',
+                upgrades: { ...DEFAULT_PLAYER_UPGRADES }
             }));
             this.bestScore = 0;
             this.totalKills = 0;
@@ -1440,11 +1496,101 @@ class Game {
 
             this.players.forEach((player, index) => {
                 player.weapon = WEAPONS[this.playerProgress[index].equippedWeapon];
+                this.applyPlayerUpgrades(player, index);
             });
 
             this.saveProgress();
             alert("Progreso reiniciado correctamente.");
         }
+    }
+
+    openUpgrades(playerIndex = this.activeUpgradePlayerIndex) {
+        if (playerIndex !== 0 && playerIndex !== 1) throw new Error(`Jugador de mejoras no válido: ${playerIndex}`);
+        this.activeUpgradePlayerIndex = playerIndex;
+        document.getElementById('upgrade-player-select').value = String(playerIndex);
+        this.updateUpgradeUI();
+        this.showOverlay('upgrades-overlay');
+    }
+
+    updateUpgradeUI(message = '') {
+        const playerIndex = this.activeUpgradePlayerIndex;
+        const progress = this.playerProgress[playerIndex];
+        const upgrades = progress.upgrades || { ...DEFAULT_PLAYER_UPGRADES };
+        document.getElementById('upgrade-coins').innerText = `P${playerIndex + 1}: 🪙 ${progress.coins}`;
+        document.getElementById('upgrade-msg').textContent = message;
+
+        const definitions = [
+            {
+                key: 'hpLevel',
+                prefix: 'hp',
+                increment: '+15 HP',
+                maximum: 10
+            },
+            {
+                key: 'energyLevel',
+                prefix: 'energy',
+                increment: '+10% de energía',
+                maximum: 10
+            },
+            {
+                key: 'coinComboLevel',
+                prefix: 'coins',
+                increment: '+5% por cada x5 de combo',
+                maximum: 10
+            }
+        ];
+        definitions.forEach(({ key, prefix, increment, maximum }) => {
+            const level = upgrades[key] || 0;
+            const atMaximum = level >= maximum;
+            const cost = 500 * (2 ** level);
+            document.getElementById(`upgrade-${prefix}-level`).textContent =
+                `Nivel ${level} / ${maximum}`;
+            document.getElementById(`upgrade-${prefix}-next`).textContent =
+                atMaximum ? 'Nivel máximo alcanzado' : `Siguiente nivel: ${increment}`;
+            document.getElementById(`upgrade-${prefix}-cost`).textContent =
+                atMaximum ? 'Precio: —' : `Precio: 🪙 ${cost}`;
+            const button = document.getElementById(`btn-upgrade-${prefix}`);
+            button.disabled = atMaximum || progress.coins < cost;
+            button.textContent = atMaximum ? 'NIVEL MÁXIMO' : 'MEJORAR';
+        });
+    }
+
+    purchaseUpgrade(upgradeKey) {
+        const definitions = {
+            hpLevel: { prefix: 'hp', maximum: 10, message: 'MATRIZ VITAL' },
+            energyLevel: { prefix: 'energy', maximum: 10, message: 'RECARGADOR PLASMA' },
+            coinComboLevel: { prefix: 'coins', maximum: 10, message: 'ALGORITMO MULTIPLICADOR' }
+        };
+        const definition = definitions[upgradeKey];
+        if (!definition) throw new RangeError(`Mejora no válida: ${upgradeKey}`);
+        const playerIndex = this.activeUpgradePlayerIndex;
+        const progress = this.playerProgress[playerIndex];
+        const upgrades = progress.upgrades || (progress.upgrades = { ...DEFAULT_PLAYER_UPGRADES });
+        const level = upgrades[upgradeKey] || 0;
+        if (level >= definition.maximum) {
+            this.updateUpgradeUI('Esta mejora ya alcanzó su nivel máximo.');
+            return false;
+        }
+
+        const cost = 500 * (2 ** level);
+        if (progress.coins < cost) {
+            this.updateUpgradeUI(`Monedas insuficientes para ${definition.message}.`);
+            return false;
+        }
+
+        progress.coins -= cost;
+        upgrades[upgradeKey] = level + 1;
+        const player = this.players[playerIndex];
+        if (player) {
+            player.upgrades = { ...DEFAULT_PLAYER_UPGRADES, ...upgrades };
+            if (upgradeKey === 'hpLevel') {
+                player.maxHp = 100 + player.upgrades.hpLevel * 15;
+                player.hp = Math.min(player.hp, player.maxHp);
+            }
+        }
+        this.saveProgress();
+        this.updateUpgradeUI(`${definition.message}: nivel ${level + 1} desbloqueado.`);
+        return true;
     }
 
     /**
@@ -1474,9 +1620,9 @@ class Game {
                         : ''}
                     <div class="stat-bars-container">
                         <div class="stat-row">
-                            <span>Daño:</span>
+                            <span>Daño (${w.damage}):</span>
                             <div class="stat-mini-bar">
-                                <div class="stat-mini-fill" style="width: ${(w.damageMult / 3.5) * 100}%; background: ${w.color};"></div>
+                                <div class="stat-mini-fill" style="width: ${Math.min(100, (w.damage / 110) * 100)}%; background: ${w.color};"></div>
                             </div>
                         </div>
                         <div class="stat-row">
@@ -1604,7 +1750,137 @@ class Game {
             this.platforms.push({ x: this.width * 0.30, y: floorY - 210, w: platW * 0.85, h: 14 });
             this.platforms.push({ x: this.width * 0.52, y: floorY - 210, w: platW * 0.85, h: 14 });
             this.platforms.push({ x: this.width * 0.74, y: floorY - 130, w: platW * 0.8, h: 14 });
+        } else if (this.currentZone === 12) {
+            // Zona 12: plataforma de combate elevada frente al Coliseo.
+            this.platforms.push({ x: this.width * 0.38, y: floorY - 132, w: platW, h: 14 });
         }
+    }
+
+    setupArenaElements() {
+        this.arenaElementConfig = buildArenaElementConfig(this.currentZone, this.isSurvivalMode);
+        const floorY = this.getFloorY();
+        this.jumpPads = this.arenaElementConfig.jumpPads.map(position =>
+            new NeonJumpPad(this.width * position, floorY)
+        );
+        this.ceilingLasers = this.arenaElementConfig.ceilingLasers.map((position, index) =>
+            new NeonCeilingLaser(this.width * position, floorY, index * 150)
+        );
+    }
+
+    createElectricImpact(x, y, color = this.trapColors.electricBlue, particleCount = 14) {
+        for (let index = 0; index < particleCount; index++) {
+            this.particles.push(new Particle(
+                x,
+                y,
+                (Math.random() - 0.5) * 9,
+                (Math.random() - 0.5) * 9,
+                index % 3 === 0 ? this.trapColors.electricYellow : color,
+                2.5 + Math.random() * 3,
+                18
+            ));
+        }
+        this.screenShake = Math.max(this.screenShake, 6);
+    }
+
+    updateArenaElements(deltaTime, floorY) {
+        this.jumpPads.forEach(pad => pad.update(deltaTime));
+        this.ceilingLasers.forEach(laser => laser.update(deltaTime));
+
+        const livingPlayers = this.getAlivePlayers();
+        const entities = [...livingPlayers, ...this.enemies.filter(enemy => !enemy.isDead)];
+        entities.forEach(entity => {
+            const isPlayer = this.players.includes(entity);
+            const margin = isPlayer ? 25 : 20;
+            const movingIntoLeftWall =
+                entity.x <= margin + 0.5 &&
+                (entity.knockbackVx < -3 ||
+                    (entity.dashTimer > 0 && entity.dashDirection < 0) ||
+                    entity.vx < -PLAYER_DASH_SPEED * 0.65);
+            const movingIntoRightWall =
+                entity.x >= this.width - margin - 0.5 &&
+                (entity.knockbackVx > 3 ||
+                    (entity.dashTimer > 0 && entity.dashDirection > 0) ||
+                    entity.vx > PLAYER_DASH_SPEED * 0.65);
+            if (this.arenaElementConfig.electricWalls &&
+                entity.edgeShockCooldown <= 0 &&
+                (movingIntoLeftWall || movingIntoRightWall)) {
+                const wallX = movingIntoLeftWall ? 4 : this.width - 4;
+                const impactY = entity.y - (entity.height || 50) * 0.35;
+                if (isPlayer) {
+                    this.damagePlayer(10, entity, true);
+                    if (entity.hp > 0) entity.electricStunTimer = 30;
+                } else {
+                    const source = livingPlayers.reduce((nearest, player) =>
+                        Math.abs(player.x - entity.x) < Math.abs(nearest.x - entity.x) ? player : nearest,
+                    livingPlayers[0] || this.players[0]);
+                    entity.hp -= 10;
+                    entity.stunTimer = Math.max(entity.stunTimer, 30);
+                    entity.electroShockTimer = Math.max(entity.electroShockTimer, 30);
+                    entity.knockbackVx = movingIntoLeftWall ? 8 : -8;
+                    if (entity.hp <= 0) this.finishEnemyDeath(entity, source);
+                }
+                entity.edgeShockCooldown = 45;
+                this.createElectricImpact(wallX, impactY);
+            }
+
+            this.jumpPads.forEach(pad => {
+                const feetOffset = isPlayer ? 28 : (entity.feetOffset || 25);
+                if (entity.isGrounded &&
+                    Math.abs(entity.y + feetOffset - floorY) <= 4 &&
+                    Math.abs(entity.x - pad.x) <= pad.width / 2 + (entity.width || 24) / 2 &&
+                    pad.canLaunch(entity)) {
+                    pad.launch(entity);
+                    this.createElectricImpact(pad.x, floorY - 10, this.trapColors.padCyan, 9);
+                    for (let index = 0; index < 8; index++) {
+                        this.particles.push(new Particle(
+                            pad.x + (Math.random() - 0.5) * 20,
+                            floorY - 8,
+                            (Math.random() - 0.5) * 2,
+                            -2 - Math.random() * 4,
+                            '#7ceeff',
+                            2.5,
+                            18
+                        ));
+                    }
+                }
+            });
+        });
+
+        this.ceilingLasers.forEach(laser => {
+            entities.forEach(entity => {
+                laser.tickHitCooldown(entity, deltaTime);
+                if (!laser.isActive || !laser.canHit(entity)) return;
+                const isPlayer = this.players.includes(entity);
+                if (isPlayer && (entity.isCrouching || entity.invulnerableTimer > 0)) return;
+                const bodyTop = entity.y - (entity.height || 50) * 0.5;
+                const bodyBottom = entity.y + (isPlayer ? 28 : (entity.feetOffset || 25));
+                if (Math.abs(entity.x - laser.x) > laser.width / 2 + (entity.width || 24) / 2 ||
+                    bodyTop > laser.beamEndY ||
+                    bodyBottom < 0) return;
+
+                laser.markHit(entity);
+                this.createElectricImpact(laser.x, Math.max(0, bodyTop), this.trapColors.laserRed, 12);
+                if (isPlayer) {
+                    this.damagePlayer(18, entity);
+                } else {
+                    const source = livingPlayers.reduce((nearest, player) =>
+                        Math.abs(player.x - entity.x) < Math.abs(nearest.x - entity.x) ? player : nearest,
+                    livingPlayers[0] || this.players[0]);
+                    this.damageEnemyWithWeapon(
+                        source,
+                        entity,
+                        WEAPONS.plasma,
+                        22,
+                        new Set(),
+                        'environment',
+                        false,
+                        false,
+                        false
+                    );
+                    entity.applyElementalStatus('plasmaBurn', 60, source, 5);
+                }
+            });
+        });
     }
 
     setZone(zoneNumber) {
@@ -1616,6 +1892,7 @@ class Game {
         this.currentZone = zoneNumber;
         this.activeBackground = ZONE_BACKGROUND_IMAGES[zoneNumber - 1];
         this.setupZonePlatforms();
+        this.setupArenaElements();
         if (this.state === 'PLAYING') this.syncMusicWithGameState();
         this.updateHUD();
         this.draw();
@@ -1645,6 +1922,7 @@ class Game {
         this.currentZone = 1;
         this.activeBackground = ZONE_BACKGROUND_IMAGES[this.currentZone - 1];
         this.currentWave = 1;
+        this.setupArenaElements();
         this.enemies = [];
         this.projectiles = [];
         this.particles = [];
@@ -1703,10 +1981,12 @@ class Game {
      */
     startWave() {
         this.enemies = [];
+        this.pendingEnemySpawns = [];
+        this.enemySpawnTimer = 0;
         this.projectiles = [];
         this.bossActive = false;
 
-        // Jefes únicos y temáticos para las 11 Zonas.
+        // Jefes de zona resueltos por el sistema de jefe existente.
         const bossConfigs = [
             { name: 'NEON OVERLORD PRECURSOR', hp: 450, color: '#ff00aa', element: 'fire' }, // Tokio
             { name: 'CYBER SENTINEL MK-II', hp: 550, color: '#00ffcc', element: 'air' }, // París
@@ -1718,40 +1998,21 @@ class Game {
             { name: 'GOD-CYBORG DESTRUCTOR', hp: 1400, color: '#ffea00', element: 'water' }, // El Cairo
             { name: 'TITAN SOLAR', hp: 1700, color: '#ff8f1f', element: 'fire', accent: '#ffd166' }, // Dubái
             { name: 'TEMPEST', hp: 1850, color: '#36d1dc', element: 'air', accent: '#c0f5ff' }, // Río
-            { name: 'GUARDIÁN INCA', hp: 2200, color: '#2ec27e', element: 'earth', secondaryElement: 'water', accent: '#f4d35e' } // Machu
+            { name: 'GUARDIÁN INCA', hp: 2200, color: '#2ec27e', element: 'earth', secondaryElement: 'water', accent: '#f4d35e' }, // Machu Picchu
+            { name: 'COLOSSO DEL COLOSSEO', hp: 2400, color: '#ff8f3f', element: 'fire', accent: '#ffd166' },
+            { name: 'ORÁCULO DEL PARTENÓN', hp: 2600, color: '#6edbff', element: 'air', accent: '#b8f3ff' },
+            { name: 'GUARDIÁN DE LA PLAZA ROJA', hp: 2800, color: '#ff4d70', element: 'earth', accent: '#ffadad' },
+            { name: 'ABISMO DE ATLANTIS', hp: 3000, color: '#00d9e8', element: 'water', accent: '#9bf6ff' }
         ];
 
         if (this.isSurvivalMode) {
-            const enemyCount = Math.min(18, 4 + Math.ceil((this.currentWave - 1) / 2));
-            const fast = Math.floor(enemyCount * 0.2);
-            const heavy = this.currentWave >= 3 ? Math.floor(enemyCount * 0.15) : 0;
-            const special = this.currentWave >= 5 ? Math.floor(enemyCount * 0.15) : 0;
-            this.spawnEnemies({
-                basic: enemyCount - fast - heavy - special,
-                fast,
-                heavy,
-                special
-            });
+            this.spawnEnemies(buildEnemyWave(this.currentZone, this.currentWave, true));
         // Distribución equilibrada de oleadas (1 a 4 normales, 5ta es Jefe de Zona)
         } else if (this.currentWave < this.maxWaves) {
-            if (this.currentZone === 1) {
-                if (this.currentWave === 1) this.spawnEnemies({ basic: 3 });
-                else if (this.currentWave === 2) this.spawnEnemies({ basic: 4, fast: 1 });
-                else if (this.currentWave === 3) this.spawnEnemies({ basic: 4, heavy: 1 });
-                else if (this.currentWave === 4) this.spawnEnemies({ basic: 5, fast: 2, special: 1 });
-            } else {
-                const z = this.currentZone;
-                const w = this.currentWave;
-                this.spawnEnemies({
-                    basic: Math.min(8, 2 + Math.floor(z * 0.5) + Math.floor(w * 0.4)),
-                    fast: Math.min(6, 1 + Math.floor(w * 0.7) + Math.floor(z * 0.4)),
-                    heavy: Math.min(4, Math.floor(w / 2) + Math.floor(z / 3)),
-                    special: Math.min(5, Math.floor(z / 2) + (w >= 3 ? 1 : 0))
-                });
-            }
+            this.spawnEnemies(buildEnemyWave(this.currentZone, this.currentWave));
         } else {
             // Oleada 5: Jefe de Zona
-            const cfg = bossConfigs[this.currentZone - 1] || bossConfigs[0];
+            const cfg = bossConfigs[this.currentZone - 1];
             this.startBoss(cfg);
         }
 
@@ -1763,26 +2024,69 @@ class Game {
      * Genera enemigos perfectamente alineados al suelo base
      */
     spawnEnemies(counts) {
-        const floorY = this.getFloorY();
+        const spawnTypes = [];
         Object.keys(counts).forEach(type => {
-            const scale = (type === 'boss' ? 1.6 : (type === 'heavy' ? 1.25 : (type === 'fast' ? 0.9 : 1.0)));
-            const feetOffset = 25 * scale;
             for (let i = 0; i < counts[type]; i++) {
-                // Aparecen a los extremos para evitar spawn camp sobre el jugador
-                const spawnX = Math.random() < 0.5 
-                    ? Math.max(30, Math.random() * (this.width * 0.22))
-                    : Math.min(this.width - 30, this.width - Math.random() * (this.width * 0.22));
-                // Se genera anclado con precisión sobre el suelo base
-                const enemy = new Enemy(spawnX, floorY - feetOffset, type);
-                if (this.isSurvivalMode) {
-                    const multiplier = Math.pow(1.15, this.currentWave - 1);
-                    enemy.hp *= multiplier;
-                    enemy.maxHp *= multiplier;
-                    enemy.damageMultiplier = multiplier;
-                }
-                this.enemies.push(enemy);
+                spawnTypes.push(type);
             }
         });
+        for (let index = spawnTypes.length - 1; index > 0; index--) {
+            const swapIndex = Math.floor(Math.random() * (index + 1));
+            [spawnTypes[index], spawnTypes[swapIndex]] = [spawnTypes[swapIndex], spawnTypes[index]];
+        }
+        if (this.isSurvivalMode || this.currentZone >= 8) {
+            const spawnPriority = {
+                cyberBrawler: 0,
+                heavy: 1,
+                cyberNinja: 2,
+                cyberRanger: 3,
+                cyberKamikaze: 4
+            };
+            spawnTypes.sort((first, second) =>
+                (spawnPriority[first] ?? 5) - (spawnPriority[second] ?? 5)
+            );
+        }
+        this.pendingEnemySpawns.push(...spawnTypes);
+        this.spawnNextEnemy();
+        this.enemySpawnTimer = this.pendingEnemySpawns.length > 0 ? this.enemySpawnInterval : 0;
+    }
+
+    spawnNextEnemy() {
+        const type = this.pendingEnemySpawns.shift();
+        if (!type) return;
+
+        const floorY = this.getFloorY();
+        const scale = {
+            boss: 1.6,
+            heavy: 1.25,
+            fast: 0.9,
+            shield: 1.1,
+            cyberNinja: 0.95,
+            cyberBrawler: 1.3
+        }[type] || 1;
+        const spawnX = Math.random() < 0.5
+            ? Math.max(30, Math.random() * (this.width * 0.18))
+            : Math.min(this.width - 30, this.width - Math.random() * (this.width * 0.18));
+        const enemy = type === 'drone'
+            ? new DroneEnemy(spawnX, this.height - (180 + Math.random() * 40))
+            : type === 'shield'
+                ? new ShieldEnemy(spawnX, floorY - 25 * scale)
+                : type === 'cyberNinja'
+                    ? new CyberNinja(spawnX, floorY - 25 * scale)
+                    : type === 'cyberBrawler'
+                        ? new CyberBrawler(spawnX, floorY - 25 * scale)
+                        : type === 'cyberKamikaze'
+                            ? new CyberKamikaze(spawnX, floorY - 25 * scale)
+                            : type === 'cyberRanger'
+                                ? new CyberRanger(spawnX, floorY - 25 * scale)
+                                : new Enemy(spawnX, floorY - 25 * scale, type);
+        if (this.isSurvivalMode) {
+            const multiplier = Math.pow(1.15, this.currentWave - 1);
+            enemy.hp *= multiplier;
+            enemy.maxHp *= multiplier;
+            enemy.damageMultiplier = multiplier;
+        }
+        this.enemies.push(enemy);
     }
 
     /**
@@ -1802,6 +2106,7 @@ class Game {
         boss.hp = config.hp;
         boss.maxHp = config.hp;
         boss.color = config.color;
+        boss.baseColor = config.color;
         boss.element = config.element || 'fire';
         boss.secondaryElement = config.secondaryElement || null;
         const resistances = {
@@ -1835,24 +2140,40 @@ class Game {
     }
 
     triggerPlayerSpecialAbility(player) {
-        if (!this.isPlayerCombatReady(player)) return;
+        if (!this.isPlayerCombatReady(player) ||
+            this.state !== 'PLAYING' ||
+            !player.isAttacking ||
+            player.attackType !== 'special' ||
+            player.attackImpactResolved ||
+            player.attackElapsed < PLAYER_SPECIAL_CHARGE_FRAMES ||
+            player.energy < 100) return;
+
+        player.attackImpactResolved = true;
+        player.energy = 0;
 
         const burstRadius = 150;
-        const damage = 30 + (player.weapon?.damage || 15) * 1.5;
-        const burstColor = player.accentColor || player.color || '#ffffff';
+        const weapon = player.weapon || WEAPONS.whip;
+        const damage = 30 + weapon.damage * 1.5;
+        const burstColor = weapon.color || player.accentColor || player.color || '#ffffff';
+        const floorY = this.getFloorY();
+        const specialWeapon = weapon.kind === 'aoe' ? weapon : { ...weapon, kind: 'aoe' };
 
-        this.explosions.push(new ExplosionEffect(player.x, player.y - 8, burstRadius * 0.3, burstColor));
-        for (let i = 0; i < 24; i++) {
-            const angle = (Math.PI * 2 * i) / 24;
-            const speed = 2 + Math.random() * 4;
+        this.explosions.push(new ExplosionEffect(player.x, player.y - 8, 58, '#ffffff'));
+        this.explosions.push(new ShockwaveEffect(player.x, floorY - 2, burstRadius, burstColor));
+        if (weapon.id === 'seismicHammer') {
+            this.explosions.push(new SeismicCrackEffect(player.x, floorY - 2, player.facingRight ? 1 : -1));
+        }
+        for (let i = 0; i < 32; i++) {
+            const angle = (Math.PI * 2 * i) / 32;
+            const speed = 3 + Math.random() * 6;
             this.particles.push(new Particle(
                 player.x,
                 player.y - 8,
                 Math.cos(angle) * speed,
                 Math.sin(angle) * speed,
-                burstColor,
-                3 + Math.random() * 3,
-                18 + Math.random() * 12
+                i % 4 === 0 ? '#ffffff' : burstColor,
+                3 + Math.random() * 4,
+                22 + Math.random() * 14
             ));
         }
 
@@ -1861,34 +2182,103 @@ class Game {
             const distance = Math.hypot(enemy.x - player.x, enemy.y - player.y);
             if (distance <= burstRadius) {
                 const blastDamage = damage * (1 - distance / burstRadius);
-                enemy.hp = Math.max(0, enemy.hp - blastDamage);
+                this.explosions.push(new ExplosionEffect(enemy.x, enemy.y - 8, 34, '#ffffff'));
+                switch (weapon.id) {
+                    case 'dagger':
+                        for (let index = 0; index < 8; index++) {
+                            const angle = (Math.PI * 2 * index) / 8;
+                            const speed = 2 + Math.random() * 3;
+                            this.particles.push(new Particle(
+                                enemy.x,
+                                enemy.y - 8,
+                                Math.cos(angle) * speed,
+                                Math.sin(angle) * speed,
+                                '#aaff33',
+                                3,
+                                18
+                            ));
+                        }
+                        break;
+                    case 'sword':
+                    case 'plasma':
+                    case 'whip':
+                    case 'blaster':
+                    case 'cyberDaggers':
+                        this.explosions.push(new ElectricArcEffect(
+                            player.x,
+                            player.y - 8,
+                            enemy.x,
+                            enemy.y - 8,
+                            weapon.id === 'whip' ? '#e8ff4a' : burstColor
+                        ));
+                        if (weapon.id === 'plasma') {
+                            this.explosions.push(new ExplosionEffect(enemy.x, enemy.y - 8, 48, '#ffb3ed'));
+                        } else if (weapon.id === 'blaster') {
+                            this.explosions.push(new ShockwaveEffect(enemy.x, enemy.y - 8, 48, '#7ceeff'));
+                        } else if (weapon.id === 'cyberDaggers') {
+                            this.explosions.push(new ElectricArcEffect(
+                                player.x,
+                                player.y - 20,
+                                enemy.x,
+                                enemy.y + 4,
+                                '#ffffff'
+                            ));
+                        }
+                        break;
+                    case 'hammer':
+                        this.explosions.push(new ShockwaveEffect(enemy.x, floorY - 2, 62, burstColor));
+                        break;
+                    case 'seismicHammer':
+                        this.explosions.push(new ShockwaveEffect(enemy.x, floorY - 2, 82, burstColor));
+                        break;
+                    default:
+                        break;
+                }
                 enemy.vx += (enemy.x >= player.x ? 1 : -1) * 7;
                 enemy.knockbackVx = (enemy.x >= player.x ? 1 : -1) * 10;
-                this.floatingTexts.push(new FloatingText(enemy.x, enemy.y - 30, `-${Math.round(blastDamage)}`, burstColor, 18));
                 this.screenShake = Math.max(this.screenShake, 12);
+                if (weapon.id === 'seismicHammer') {
+                    enemy.knockbackVx += (enemy.x >= player.x ? 1 : -1) * 8;
+                }
+                this.damageEnemyWithWeapon(
+                    player,
+                    enemy,
+                    specialWeapon,
+                    blastDamage,
+                    new Set(),
+                    'special',
+                    false,
+                    false,
+                    false
+                );
             }
         });
 
-        player.energy = 0;
         player.knockbackVx = player.facingRight ? 9 : -9;
         player.vy = -3.5;
         this.vibrate(20);
+        this.updateHUD();
     }
 
     /**
      * Inflige daño a un jugador concreto sin compartir su salud con el resto.
      */
-    damagePlayer(amount = 5, target = this.player) {
+    damagePlayer(amount = 5, target = this.player, ignoreInvulnerability = false) {
         const playerTarget = target || this.player;
         if (!this.isPlayerCombatReady(playerTarget) ||
-            playerTarget.invulnerableTimer > 0 ||
-            this.teamInvulnerableTimer > 0 ||
+            (!ignoreInvulnerability &&
+                (playerTarget.invulnerableTimer > 0 || this.teamInvulnerableTimer > 0)) ||
             this.state !== 'PLAYING' ||
             !Number.isFinite(amount) ||
             amount <= 0) return;
 
         const actualDamage = Math.min(playerTarget.hp, amount);
         playerTarget.hp = Math.max(0, playerTarget.hp - actualDamage);
+        const energyLevel = playerTarget.upgrades?.energyLevel || 0;
+        playerTarget.energy = Math.min(
+            playerTarget.maxEnergy,
+            playerTarget.energy + 5 * (1 + energyLevel * 0.1)
+        );
         playerTarget.invulnerableTimer = 34;
         playerTarget.setState('hit');
         this.teamInvulnerableTimer = 34; // ~550ms de invulnerabilidad compartida
@@ -2008,10 +2398,13 @@ class Game {
      */
     addCoins(amount, x, y, player = this.players[0]) {
         const playerIndex = Math.max(0, this.players.indexOf(player));
-        const multiplier = this.isSurvivalMode
+        const survivalMultiplier = this.isSurvivalMode
             ? 1 + 0.15 * Math.max(0, this.currentWave - 1)
             : 1;
-        const reward = Math.round(amount * multiplier);
+        const upgrades = this.playerProgress[playerIndex].upgrades || DEFAULT_PLAYER_UPGRADES;
+        const comboSteps = Math.floor(Math.max(0, this.combo) / 5);
+        const comboMultiplier = 1 + comboSteps * 0.05 * upgrades.coinComboLevel;
+        const reward = Math.round(amount * survivalMultiplier * comboMultiplier);
         this.playerProgress[playerIndex].coins += reward;
         sound.playCoin();
         this.floatingTexts.push(new FloatingText(
@@ -2020,9 +2413,30 @@ class Game {
         this.saveProgress();
     }
 
-    damageEnemyWithWeapon(player, enemy, weapon, damage, hitTargets = player.hitEnemies, attackType = player.attackType, allowShockwave = true, allowChain = true) {
+    damageEnemyWithWeapon(player, enemy, weapon, damage, hitTargets = player.hitEnemies, attackType = player.attackType, allowShockwave = true, allowChain = true, grantEnergy = true) {
         if (!this.isPlayerCombatReady(player) || enemy.isDead || hitTargets.has(enemy)) return;
         hitTargets.add(enemy);
+        if (enemy.type === 'shield' && weapon.kind !== 'aoe') {
+            const playerIsAbove = player.y + player.height * 0.15 < enemy.y - 4;
+            const attackerIsBehind = (player.x - enemy.x) * (enemy.facingRight ? 1 : -1) < 0;
+            if (!playerIsAbove && !attackerIsBehind) {
+                enemy.shieldFlashTimer = 12;
+                for (let index = 0; index < 5; index++) {
+                    this.particles.push(new Particle(
+                        enemy.x + (enemy.facingRight ? 1 : -1) * 18,
+                        enemy.y - 8,
+                        (Math.random() - 0.5) * 4,
+                        (Math.random() - 0.5) * 4,
+                        '#63efff', 3, 14
+                    ));
+                }
+                if (allowShockwave && weapon.id === 'hammer' &&
+                    ['heavy', 'special'].includes(attackType)) {
+                    this.createHammerShockwave(player, enemy, weapon, damage, attackType, true);
+                }
+                return;
+            }
+        }
         enemy.lastStatusSource = player;
         const incomingDamageMultiplier = (enemy.armorBreakTimer > 0 ? 1.15 : 1) *
             (1 + enemy.cyberCutStacks * 0.1);
@@ -2030,7 +2444,13 @@ class Game {
             ? (BOSS_WEAPON_DAMAGE_MULTIPLIERS[weapon.id] || 1)
             : 1);
         enemy.hp -= appliedDamage;
-        player.energy = Math.min(100, player.energy + 10);
+        if (grantEnergy) {
+            const energyLevel = player.upgrades?.energyLevel || 0;
+            player.energy = Math.min(
+                player.maxEnergy,
+                player.energy + 10 * (1 + energyLevel * 0.1)
+            );
+        }
         this.updateHUD();
         this.combo++;
         this.comboTimer = 90;
@@ -2136,7 +2556,7 @@ class Game {
         }
     }
 
-    createHammerShockwave(player, impactEnemy, weapon, damage, attackType) {
+    createHammerShockwave(player, impactEnemy, weapon, damage, attackType, includeImpact = false) {
         if (player.attackImpactResolved) return;
         player.attackImpactResolved = true;
         const floorY = this.getFloorY();
@@ -2156,7 +2576,7 @@ class Game {
         }
 
         this.enemies.forEach(enemy => {
-            if (enemy === impactEnemy || enemy.isDead) return;
+            if ((!includeImpact && enemy === impactEnemy) || enemy.isDead) return;
             const distanceX = Math.abs(enemy.x - centerX);
             const distanceY = Math.abs(enemy.y + enemy.feetOffset - floorY);
             if (distanceX <= radius + enemy.width / 2 && distanceY <= enemy.feetOffset + 42) {
@@ -2201,9 +2621,12 @@ class Game {
     checkCombatCollisions() {
         this.players.forEach(player => {
             if (!this.isPlayerCombatReady(player) || !player.isAttacking) return;
+            if (player.attackType === 'special') {
+                this.triggerPlayerSpecialAbility(player);
+                return;
+            }
             const weapon = player.attackWeapon || player.weapon || WEAPONS.whip;
-            const multiplier = player.attackType === 'heavy' ? 1.35 :
-                (player.attackType === 'special' ? 2 : 1);
+            const multiplier = player.attackType === 'heavy' ? 1.35 : 1;
             const damage = weapon.damage * multiplier;
             const active = player.attackElapsed >= weapon.windup &&
                 player.attackElapsed < weapon.windup + weapon.activeFrames;
@@ -2414,11 +2837,15 @@ class Game {
         const p2 = this.players[1];
         const p2Section = document.querySelector('.p2-health-section');
         const p2WeaponSection = document.getElementById('p2-weapon-section');
+        const p2EnergySection = document.getElementById('p2-energy-section');
         if (p2Section) {
             p2Section.classList.toggle('hidden', !p2);
         }
         if (p2WeaponSection) {
             p2WeaponSection.classList.toggle('hidden', !p2);
+        }
+        if (p2EnergySection) {
+            p2EnergySection.classList.toggle('hidden', !p2);
         }
         const p2Coins = document.getElementById('hud-p2-coins');
         if (p2Coins) p2Coins.classList.toggle('hidden', !p2);
@@ -2437,17 +2864,21 @@ class Game {
             }
         }
 
-        // Barra de energía
-        const energyBar = document.getElementById('energy-bar');
-        energyBar.style.width = `${this.player.energy}%`;
-        const energyText = document.getElementById('energy-text');
+        const updateEnergyBar = (player, barId, textId, readyControl) => {
+            const energyBar = document.getElementById(barId);
+            const energyText = document.getElementById(textId);
+            if (!player || !energyBar || !energyText) return;
 
-        if (this.player.energy >= 100) {
-            energyBar.classList.add('energy-full');
-            energyText.innerText = `⚡ ${this.player.playerId} [L] ESPECIAL LISTO!`;
-        } else {
-            energyBar.classList.remove('energy-full');
-            energyText.innerText = `⚡ ${this.player.playerId} ENERGÍA: ${Math.round(this.player.energy)} / 100`;
+            const energy = Math.max(0, Math.min(player.maxEnergy, player.energy));
+            energyBar.style.width = `${(energy / player.maxEnergy) * 100}%`;
+            energyBar.classList.toggle('energy-full', energy >= player.maxEnergy);
+            energyText.innerText = energy >= player.maxEnergy
+                ? `⚡ ${player.playerId} ${readyControl} ESPECIAL LISTO!`
+                : `⚡ ${player.playerId} ENERGÍA: ${Math.round(energy)} / ${Math.round(player.maxEnergy)}`;
+        };
+        updateEnergyBar(this.players[0] || this.player, 'energy-bar', 'energy-text', '[L]');
+        if (p2) {
+            updateEnergyBar(p2, 'p2-energy-bar', 'p2-energy-text', '[O/Y]');
         }
 
         // Monedas, Zona y Oleadas
@@ -2457,11 +2888,18 @@ class Game {
         document.getElementById('hud-zone').innerText = this.isSurvivalMode
             ? 'MODO SUPERVIVENCIA'
             : `ZONA ${this.currentZone}: ${currentZoneTitle}`;
-        document.getElementById('hud-wave').innerText = this.isSurvivalMode
+        const waveBadge = document.getElementById('hud-wave');
+        waveBadge.innerText = this.isSurvivalMode
             ? `SUPERVIVENCIA - OLEADA ${this.currentWave}`
             : this.bossActive
-                ? '⚠ COMBATE DE JEFE'
+                ? this.enemies.some(enemy => enemy.type === 'boss' && enemy.rageMode)
+                    ? '⚠ JEFE: MODO FURIA'
+                    : '⚠ COMBATE DE JEFE'
                 : `OLEADA ${this.currentWave} / ${this.maxWaves}`;
+        waveBadge.classList.toggle(
+            'boss-rage',
+            this.bossActive && this.enemies.some(enemy => enemy.type === 'boss' && enemy.rageMode)
+        );
 
         // Contador de Combo
         const comboEl = document.getElementById('combo-display');
@@ -2534,9 +2972,9 @@ class Game {
         const stats = document.getElementById('victory-stats');
         stats.innerHTML = `
             <div class="result-stats-card" style="border-color: #00ff88;">
-                <p style="color: #00ff88; font-size: 1.3rem;">¡Has conquistado las 11 Zonas y derrotado a todos los Jefes!</p>
+                <p style="color: #00ff88; font-size: 1.3rem;">¡Has conquistado las ${ZONE_SCENES.length} Zonas y derrotado a todos los Jefes!</p>
                 <p>Monedas finales: <strong style="color: #ffcc00;">P1 ${this.playerProgress[0].coins} / P2 ${this.playerProgress[1].coins} 🪙</strong></p>
-                <p>Jefes Derrotados: <strong>${this.totalBosses} / 11 👑</strong></p>
+                <p>Jefes Derrotados: <strong>${this.totalBosses} / ${ZONE_SCENES.length} 👑</strong></p>
             </div>
         `;
         this.showOverlay('victory-overlay');
@@ -2560,6 +2998,13 @@ class Game {
 
         const floorY = this.getFloorY();
         this.gameTime++;
+        if (this.pendingEnemySpawns.length > 0) {
+            this.enemySpawnTimer -= deltaTime;
+            if (this.enemySpawnTimer <= 0) {
+                this.spawnNextEnemy();
+                this.enemySpawnTimer = this.pendingEnemySpawns.length > 0 ? this.enemySpawnInterval : 0;
+            }
+        }
 
         if (this.teamInvulnerableTimer > 0) this.teamInvulnerableTimer--;
 
@@ -2567,6 +3012,13 @@ class Game {
         this.players.forEach((player, index) => {
             const playerId = index === 0 ? 'p1' : 'p2';
             if (!this.isPlayerCombatReady(player)) {
+                this.input.consumeWeaponChanges(playerId);
+                this.input.consumeAttacks(playerId);
+                this.input.consumeDashes(playerId);
+                player.update({ moveLeft: false, moveRight: false, jump: false, crouch: false }, this.platforms, floorY, this.width, deltaTime);
+                return;
+            }
+            if (player.electricStunTimer > 0) {
                 this.input.consumeWeaponChanges(playerId);
                 this.input.consumeAttacks(playerId);
                 this.input.consumeDashes(playerId);
@@ -2581,10 +3033,7 @@ class Game {
             actions.dash = this.input.consumeDashes(playerId) > 0;
             player.update(actions, this.platforms, floorY, this.width, deltaTime);
             this.input.consumeAttacks(playerId).forEach(type => {
-                if (player.attack(type) && type === 'special') {
-                    this.triggerPlayerSpecialAbility(player);
-                    sound.playSpecial();
-                }
+                player.attack(type);
             });
         });
 
@@ -2598,12 +3047,13 @@ class Game {
                     Math.hypot(nearest.x - e.x, nearest.y - e.y) ? player : nearest
                 )
                 : { x: this.width / 2, y: floorY - 30 };
+            const wasEnraged = e.rageMode;
             e.update(
                 target,
                 this.projectiles,
                 floorY,
                 this.width,
-                (dmg) => { this.damagePlayer(dmg, target); },
+                (dmg, damageTarget = target) => { this.damagePlayer(dmg, damageTarget); },
                 this.platforms,
                 this.particles,
                 (shake) => { this.screenShake = shake; },
@@ -2621,13 +3071,30 @@ class Game {
                     if (target.hp <= 0) {
                         this.finishEnemyDeath(target, target.lastStatusSource || this.players[0]);
                     }
+                },
+                (x, y, radius, damage) => {
+                    this.explosions.push(new ExplosionEffect(x, y - 8, radius, '#ff2638'));
+                    this.screenShake = Math.max(this.screenShake, 9);
+                    this.players.forEach(player => {
+                        if (player.hp > 0 && Math.hypot(player.x - x, player.y - y) <= radius) {
+                            this.damagePlayer(damage, player);
+                        }
+                    });
+                },
+                (enemy, killer) => {
+                    const attribution = this.getAlivePlayers().includes(killer)
+                        ? killer
+                        : this.getAlivePlayers()[0] || this.players[0];
+                    this.finishEnemyDeath(enemy, attribution);
                 }
             );
+            if (!wasEnraged && e.rageMode) this.updateHUD();
             if (!e.isDead) allDead = false;
         });
+        this.updateArenaElements(deltaTime, floorY);
 
         // Comprobación de final de oleada
-        if (allDead && this.enemies.length > 0) {
+        if (allDead && this.enemies.length > 0 && this.pendingEnemySpawns.length === 0) {
             if (this.bossActive) {
                 if (this.currentZone < ZONE_SCENES.length) {
                     this.bossActive = false;
@@ -2701,7 +3168,19 @@ class Game {
         const scene = ZONE_SCENES[this.currentZone - 1] || ZONE_SCENES[0];
         const background = this.activeBackground;
         if (background && background.complete && background.naturalWidth > 0) {
-            this.ctx.drawImage(background, 0, 0, this.canvas.width, this.canvas.height);
+            const scale = Math.max(
+                this.canvas.width / background.naturalWidth,
+                this.canvas.height / background.naturalHeight
+            );
+            const drawWidth = background.naturalWidth * scale;
+            const drawHeight = background.naturalHeight * scale;
+            this.ctx.drawImage(
+                background,
+                (this.canvas.width - drawWidth) / 2,
+                (this.canvas.height - drawHeight) / 2,
+                drawWidth,
+                drawHeight
+            );
         } else {
             const grad = this.ctx.createLinearGradient(0, 0, 0, this.height);
             grad.addColorStop(0, scene.colors[0]);
@@ -2743,6 +3222,37 @@ class Game {
             this.ctx.fillRect(p.x, p.y, p.w, p.h);
             this.ctx.strokeRect(p.x, p.y, p.w, p.h);
         });
+
+        if (this.state === 'PLAYING' || this.state === 'PAUSED') {
+            if (this.arenaElementConfig.electricWalls) {
+                this.ctx.save();
+                [4, this.width - 4].forEach((wallX, side) => {
+                    this.ctx.strokeStyle = this.trapColors.electricBlue;
+                    this.ctx.shadowColor = this.trapColors.electricBlue;
+                    this.ctx.shadowBlur = 18;
+                    this.ctx.lineWidth = 5;
+                    this.ctx.beginPath();
+                    this.ctx.moveTo(wallX, 0);
+                    this.ctx.lineTo(wallX, floorY);
+                    this.ctx.stroke();
+                    for (let y = 12; y < floorY; y += 34) {
+                        const jitter = Math.sin(this.gameTime * 0.25 + y + side) * 8;
+                        this.ctx.strokeStyle = Math.floor((y + this.gameTime) / 34) % 2 === 0
+                            ? this.trapColors.electricYellow
+                            : this.trapColors.electricBlue;
+                        this.ctx.lineWidth = 2;
+                        this.ctx.beginPath();
+                        this.ctx.moveTo(wallX, y);
+                        this.ctx.lineTo(wallX + (side === 0 ? 1 : -1) * jitter, y + 10);
+                        this.ctx.lineTo(wallX, y + 20);
+                        this.ctx.stroke();
+                    }
+                });
+                this.ctx.restore();
+            }
+            this.jumpPads.forEach(pad => pad.draw(this.ctx, this.trapColors));
+            this.ceilingLasers.forEach(laser => laser.draw(this.ctx, this.gameTime, this.trapColors));
+        }
 
         // Renderizado de entidades durante la partida
         if (this.state === 'PLAYING' || this.state === 'PAUSED') {

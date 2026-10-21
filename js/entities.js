@@ -7,13 +7,21 @@
 const GAME_UNIT_SPEED = 5.0;
 const PLAYER_DASH_SPEED = 25;
 const PLAYER_DASH_DURATION = 15;
+const PLAYER_SPECIAL_CHARGE_FRAMES = 8;
+const PLAYER_SPECIAL_ANIMATION_FRAMES = 24;
+const PLAYER_SPECIAL_COOLDOWN_FRAMES = 48;
+const DEFAULT_PLAYER_UPGRADES = Object.freeze({
+    hpLevel: 0,
+    energyLevel: 0,
+    coinComboLevel: 0
+});
 
 // El arsenal original conserva sus IDs y estadísticas; la expansión usa IDs propios.
 const WEAPONS = {
     dagger: {
         id: 'dagger', name: 'DAGGER NEON', price: 750,
-        damageMult: 0.85, reachMult: 0.75, speed: 1.45,
-        kind: 'melee', damage: 15 * 0.85, reach: 44 * 0.75,
+        reachMult: 0.75, speed: 1.45,
+        kind: 'melee', damage: 25, reach: 44 * 0.75,
         cooldown: Math.round(22 / 1.45), windup: 4, activeFrames: 8, recovery: 4,
         impactRadius: 52 * 0.75, color: '#00ffcc',
         elementalEffect: 'virus',
@@ -22,18 +30,18 @@ const WEAPONS = {
     },
     sword: {
         id: 'sword', name: 'NEON SWORD', price: 1500,
-        damageMult: 1.5, reachMult: 1.35, speed: 1.0,
-        kind: 'melee', damage: 15 * 1.5, reach: 44 * 1.35,
+        reachMult: 1.35, speed: 1.0,
+        kind: 'melee', damage: 44, reach: 44 * 1.35,
         cooldown: Math.round(22 / 1.0), windup: 5, activeFrames: 10, recovery: 5,
         impactRadius: 52 * 1.35, color: '#00f3ff',
         elementalEffect: 'plasma',
         effectLabel: 'Quemadura de Plasma',
-        desc: '+50% Daño, +35% Alcance, hoja de plasma equilibrada.'
+        desc: 'Daño equilibrado, buen alcance y hoja de plasma.'
     },
     plasma: {
         id: 'plasma', name: 'PLASMA BLADE', price: 3000,
-        damageMult: 2.2, reachMult: 1.6, speed: 1.1,
-        kind: 'melee', damage: 15 * 2.2, reach: 44 * 1.6,
+        reachMult: 1.6, speed: 1.1,
+        kind: 'melee', damage: 70, reach: 44 * 1.6,
         cooldown: Math.round(22 / 1.1), windup: 5, activeFrames: 9, recovery: 4,
         impactRadius: 52 * 1.6, color: '#ff00aa',
         elementalEffect: 'plasmaDevastating',
@@ -42,8 +50,8 @@ const WEAPONS = {
     },
     hammer: {
         id: 'hammer', name: 'VOID HAMMER', price: 5000,
-        damageMult: 3.5, reachMult: 1.85, speed: 0.65,
-        kind: 'melee', damage: 15 * 3.5, reach: 44 * 1.85,
+        reachMult: 1.85, speed: 0.65,
+        kind: 'melee', damage: 92, reach: 44 * 1.85,
         cooldown: Math.round(22 / 0.65), windup: 9, activeFrames: 11, recovery: 14,
         impactRadius: 52 * 1.85, color: '#b000ff',
         elementalEffect: 'shock',
@@ -51,7 +59,7 @@ const WEAPONS = {
         desc: 'Poder cósmico destructor y onda expansiva colosal.'
     },
     whip: {
-        id: 'whip', name: 'LÁTIGO DE NEÓN', price: 1800, damage: 12, damageMult: 0.9,
+        id: 'whip', name: 'LÁTIGO DE NEÓN', price: 1800, damage: 39,
         reach: 132, reachMult: 2.2, speed: 0.9, cooldown: 34, windup: 6,
         activeFrames: 10, recovery: 8, kind: 'whip', expansion: true, color: '#00ffcc',
         elementalEffect: 'electric',
@@ -60,7 +68,7 @@ const WEAPONS = {
         desc: 'Barrido de arco de largo alcance; golpea a varios enemigos.'
     },
     blaster: {
-        id: 'blaster', name: 'BLÁSTER DE ENERGÍA', price: 2600, damage: 11, damageMult: 0.85,
+        id: 'blaster', name: 'BLÁSTER DE ENERGÍA', price: 2600, damage: 33,
         reach: 560, reachMult: 2.4, speed: 1.0, cooldown: 28, windup: 5,
         activeFrames: 1, recovery: 6, projectileSpeed: 10, impactRadius: 13,
         kind: 'projectile', expansion: true, color: '#37e7ff',
@@ -69,7 +77,7 @@ const WEAPONS = {
         desc: 'Dispara proyectiles de energía con alcance largo.'
     },
     cyberDaggers: {
-        id: 'cyberDaggers', name: 'DAGAS CIBERNÉTICAS', price: 1200, damage: 7, damageMult: 0.55,
+        id: 'cyberDaggers', name: 'DAGAS CIBERNÉTICAS', price: 1200, damage: 28,
         reach: 48, reachMult: 0.8, speed: 1.9, cooldown: 12, windup: 1,
         activeFrames: 5, recovery: 4, impactRadius: 24, kind: 'melee', expansion: true, color: '#a7ffec',
         elementalEffect: 'cyberBleed',
@@ -77,7 +85,7 @@ const WEAPONS = {
         desc: 'Golpes cuerpo a cuerpo veloces con alcance corto.'
     },
     seismicHammer: {
-        id: 'seismicHammer', name: 'MARTILLO SÍSMICO', price: 6200, damage: 24, damageMult: 1.8,
+        id: 'seismicHammer', name: 'MARTILLO SÍSMICO', price: 6200, damage: 100,
         reach: 142, reachMult: 1.5, speed: 0.62, cooldown: 68, windup: 18,
         activeFrames: 1, recovery: 24, impactRadius: 142, kind: 'aoe', expansion: true,
         color: '#c58cff',
@@ -471,6 +479,130 @@ class Projectile {
     }
 }
 
+class NeonJumpPad {
+    constructor(x, y) {
+        this.x = x;
+        this.y = y;
+        this.width = 56;
+        this.cooldowns = new Map();
+        this.pulse = Math.random() * Math.PI * 2;
+        this.activationTime = 0;
+    }
+
+    canLaunch(entity) {
+        return (this.cooldowns.get(entity) || 0) <= 0;
+    }
+
+    launch(entity) {
+        this.cooldowns.set(entity, 36);
+        this.activationTime = 18;
+        entity.vy = -18;
+        entity.isGrounded = false;
+    }
+
+    update(deltaTime = 1) {
+        this.pulse += 0.08 * deltaTime;
+        this.activationTime = Math.max(0, this.activationTime - deltaTime);
+        this.cooldowns.forEach((remaining, entity) => {
+            if (remaining <= deltaTime) this.cooldowns.delete(entity);
+            else this.cooldowns.set(entity, remaining - deltaTime);
+        });
+    }
+
+    draw(ctx, colors = {}) {
+        const pulse = 0.65 + Math.sin(this.pulse) * 0.2;
+        const padColor = colors.padCyan || '#00f3ff';
+        ctx.save();
+        ctx.fillStyle = 'rgba(0, 243, 255, 0.18)';
+        ctx.strokeStyle = padColor;
+        ctx.shadowColor = padColor;
+        ctx.shadowBlur = 10 + pulse * 8;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.roundRect(this.x - this.width / 2, this.y - 9, this.width, 9, 4);
+        ctx.fill();
+        ctx.stroke();
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 2.5;
+        ctx.beginPath();
+        ctx.moveTo(this.x, this.y - 13);
+        ctx.lineTo(this.x, this.y - (this.activationTime > 0 ? 40 : 29));
+        ctx.moveTo(this.x, this.y - 29);
+        ctx.lineTo(this.x - 8, this.y - 20);
+        ctx.moveTo(this.x, this.y - 29);
+        ctx.lineTo(this.x + 8, this.y - 20);
+        ctx.stroke();
+        if (this.activationTime > 0) {
+            ctx.globalAlpha = this.activationTime / 18;
+            ctx.strokeStyle = '#7ceeff';
+            ctx.lineWidth = 3;
+            ctx.beginPath();
+            ctx.ellipse(this.x, this.y - 14, 18 + (18 - this.activationTime) * 1.6, 7, 0, 0, Math.PI * 2);
+            ctx.stroke();
+        }
+        ctx.restore();
+    }
+}
+
+class NeonCeilingLaser {
+    constructor(x, floorY, phaseOffset = 0) {
+        this.x = x;
+        this.floorY = floorY;
+        this.width = 18;
+        this.beamEndY = floorY - 24;
+        this.warningDuration = 180;
+        this.activeDuration = 120;
+        this.cycleDuration = this.warningDuration + this.activeDuration;
+        this.cycleTimer = phaseOffset % this.cycleDuration;
+        this.hitCooldowns = new WeakMap();
+    }
+
+    get isActive() {
+        return this.cycleTimer >= this.warningDuration;
+    }
+
+    update(deltaTime = 1) {
+        this.cycleTimer = (this.cycleTimer + deltaTime) % this.cycleDuration;
+    }
+
+    canHit(entity) {
+        return (this.hitCooldowns.get(entity) || 0) <= 0;
+    }
+
+    markHit(entity) {
+        this.hitCooldowns.set(entity, 45);
+    }
+
+    tickHitCooldown(entity, deltaTime = 1) {
+        const remaining = this.hitCooldowns.get(entity) || 0;
+        if (remaining > 0) this.hitCooldowns.set(entity, Math.max(0, remaining - deltaTime));
+    }
+
+    draw(ctx, time = 0, colors = {}) {
+        const warning = !this.isActive;
+        const color = warning
+            ? (colors.electricYellow || '#ffcc00')
+            : (colors.laserRed || '#ff2638');
+        const blink = warning ? (Math.sin(time * 0.35) > 0 ? 1 : 0.22) : 1;
+        ctx.save();
+        ctx.globalAlpha = warning ? blink : 0.9;
+        ctx.fillStyle = color;
+        ctx.shadowColor = color;
+        ctx.shadowBlur = warning ? 14 : 30;
+        ctx.fillRect(this.x - this.width / 2, 0, this.width, this.beamEndY);
+        ctx.globalAlpha *= 0.45;
+        ctx.fillRect(this.x - this.width, 0, this.width * 2, this.beamEndY);
+        ctx.globalAlpha = 1;
+        ctx.strokeStyle = warning ? '#fff2a6' : '#ffffff';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(this.x, 0);
+        ctx.lineTo(this.x, this.beamEndY);
+        ctx.stroke();
+        ctx.restore();
+    }
+}
+
 /**
  * Clase Jugador (Stickman Neón)
  */
@@ -487,6 +619,7 @@ class Player {
         this.maxHp = 100;
         this.energy = 0;
         this.maxEnergy = 100;
+        this.upgrades = { ...DEFAULT_PLAYER_UPGRADES };
 
         this.isGrounded = false;
         this.isCrouching = false;
@@ -503,6 +636,8 @@ class Player {
         this.hitEnemies = new Set(); // Evita daño múltiple por frame en un solo swing
 
         this.invulnerableTimer = 0;
+        this.electricStunTimer = 0;
+        this.edgeShockCooldown = 0;
         this.dashTimer = 0;
         this.dashCooldown = 0;
         this.dashDirection = 1;
@@ -569,6 +704,8 @@ class Player {
         }
 
         const wasGrounded = this.isGrounded;
+        this.electricStunTimer = Math.max(0, this.electricStunTimer - deltaTime);
+        this.edgeShockCooldown = Math.max(0, this.edgeShockCooldown - deltaTime);
         const speed = GAME_UNIT_SPEED;
         this.vx = 0;
 
@@ -738,8 +875,9 @@ class Player {
 
         if (type === 'special') {
             if (this.energy < 100) return false;
-            this.energy = 0;
             sound.playSpecial();
+            this.attackTimer = PLAYER_SPECIAL_ANIMATION_FRAMES;
+            this.attackCooldown = Math.max(weapon.cooldown, PLAYER_SPECIAL_COOLDOWN_FRAMES);
         } else if (type === 'heavy') {
             sound.playHeavySlash();
         } else {
@@ -751,8 +889,10 @@ class Player {
         this.hitEnemies.clear();
 
         // Duración y enfriamiento calibrados
-        this.attackTimer = weapon.windup + weapon.activeFrames + weapon.recovery;
-        this.attackCooldown = weapon.cooldown;
+        if (type !== 'special') {
+            this.attackTimer = weapon.windup + weapon.activeFrames + weapon.recovery;
+            this.attackCooldown = weapon.cooldown;
+        }
         this.attackElapsed = 0;
         this.attackImpactResolved = false;
         this.attackWeapon = weapon;
@@ -825,6 +965,39 @@ class Player {
 
     drawEffects(ctx) {
         const effects = this.effects;
+        if (this.isAttacking && this.attackType === 'special') {
+            const progress = Math.min(1, this.attackElapsed / PLAYER_SPECIAL_CHARGE_FRAMES);
+            const pulse = Math.sin(Date.now() / 35) * 4;
+            const color = this.weapon?.color || this.color;
+            ctx.save();
+            ctx.globalAlpha = Math.min(0.85, 0.28 + progress * 0.5);
+            ctx.strokeStyle = color;
+            ctx.fillStyle = color;
+            ctx.shadowColor = color;
+            ctx.shadowBlur = 18 + progress * 24;
+            ctx.lineWidth = 2 + progress * 2;
+            ctx.beginPath();
+            ctx.ellipse(this.x, this.y - 8, 24 + progress * 12 + pulse, 36 + progress * 12 + pulse, 0, 0, Math.PI * 2);
+            ctx.stroke();
+            ctx.globalAlpha *= 0.65;
+            ctx.beginPath();
+            ctx.ellipse(this.x, this.y - 8, 16 + progress * 8 - pulse * 0.35, 28 + progress * 8 - pulse * 0.35, 0, 0, Math.PI * 2);
+            ctx.stroke();
+            for (let index = 0; index < 6; index++) {
+                const angle = Date.now() / 180 + index * Math.PI / 3;
+                const radius = 27 + progress * 13;
+                ctx.beginPath();
+                ctx.arc(
+                    this.x + Math.cos(angle) * radius,
+                    this.y - 8 + Math.sin(angle) * radius * 1.25,
+                    2 + progress * 2,
+                    0,
+                    Math.PI * 2
+                );
+                ctx.fill();
+            }
+            ctx.restore();
+        }
         if (!effects || !effects.enabled) return;
 
         const intensity = Math.max(0, Math.min(1.5, effects.intensity / 70));
@@ -1027,10 +1200,18 @@ class Player {
     drawWeapon(ctx, weapon, armX, armY, direction) {
         const reach = Math.max(24, weapon.reach || 40);
         const attacking = this.isAttacking;
-        const progress = attacking
-            ? Math.max(0, Math.min(1, this.attackElapsed / Math.max(1, weapon.windup + weapon.activeFrames)))
-            : 0;
-        const swingAngle = attacking ? (progress - 0.5) * 0.9 : -0.12;
+        const progress = attacking && this.attackType === 'special'
+            ? Math.max(0, Math.min(1, this.attackElapsed / PLAYER_SPECIAL_ANIMATION_FRAMES))
+            : attacking
+                ? Math.max(0, Math.min(1, this.attackElapsed / Math.max(1, weapon.windup + weapon.activeFrames)))
+                : 0;
+        const swingAngle = !attacking
+            ? -0.12
+            : this.attackType === 'special'
+                ? progress < 0.34
+                    ? -0.9
+                    : -0.9 + ((progress - 0.34) / 0.66) * 1.75
+                : (progress - 0.5) * 0.9;
 
         ctx.save();
         ctx.translate(armX, armY);
@@ -1042,7 +1223,7 @@ class Player {
         ctx.strokeStyle = weapon.color;
         ctx.fillStyle = weapon.color;
         ctx.shadowColor = weapon.color;
-        ctx.shadowBlur = attacking ? 24 : 13;
+        ctx.shadowBlur = attacking ? (this.attackType === 'special' ? 34 : 24) : 13;
 
         switch (weapon.id) {
             case 'dagger': {
@@ -1351,7 +1532,7 @@ class Enemy {
     constructor(x, y, type) {
         this.x = x;
         this.y = y;
-        this.type = type; // 'basic', 'fast', 'heavy', 'special', 'boss'
+        this.type = type;
         this.vx = 0;
         this.vy = 0;
         this.knockbackVx = 0;
@@ -1380,6 +1561,7 @@ class Enemy {
         this.cryoFreezeTimer = 0;
         this.stunTimer = 0;
         this.electroShockTimer = 0;
+        this.edgeShockCooldown = 0;
         this.effectResistances = {
             plasmaBurn: 1,
             stun: 1,
@@ -1388,11 +1570,15 @@ class Enemy {
             electroShock: 1
         };
         this.lastStatusSource = null;
+        this.shieldFlashTimer = 0;
+        this.rageMode = false;
+        this.ragePulse = 0;
 
         this.speed = GAME_UNIT_SPEED;
         this.damageMultiplier = 1;
+        this.knockbackResistance = 1;
 
-        // Estadísticas por tipo; la velocidad de desplazamiento es uniforme.
+        // Estadísticas y velocidad específicas de cada arquetipo.
         if (type === 'basic') {
             this.hp = 50; this.maxHp = 50; this.color = '#ff0055';
             this.width = 25; this.scale = 1.0; this.score = 10;
@@ -1405,6 +1591,44 @@ class Enemy {
         } else if (type === 'special') {
             this.hp = 70; this.maxHp = 70; this.color = '#00ff88';
             this.width = 28; this.scale = 1.0; this.score = 10;
+        } else if (type === 'drone') {
+            this.hp = 46; this.maxHp = 46; this.color = '#ff315c';
+            this.width = 34; this.scale = 1; this.score = 15;
+            this.height = 24; this.feetOffset = 12;
+            this.hoverY = y;
+            this.hoverPhase = Math.random() * Math.PI * 2;
+            this.fireCooldown = 2.5 * 60;
+        } else if (type === 'shield') {
+            this.hp = 105; this.maxHp = 105; this.color = '#30dfff';
+            this.width = 32; this.scale = 1.1; this.score = 15;
+            this.shieldFlashTimer = 0;
+            this.shieldFacingLocked = false;
+        } else if (type === 'cyberNinja') {
+            this.hp = 42; this.maxHp = 42; this.color = '#ff00aa';
+            this.width = 24; this.scale = 0.95; this.score = 18;
+            this.speed = GAME_UNIT_SPEED * 1.8;
+            this.ninjaDashCooldown = 55 + Math.random() * 35;
+            this.ninjaDashTimer = 0;
+            this.ninjaDashDirection = 1;
+            this.ninjaDashHit = false;
+        } else if (type === 'cyberBrawler') {
+            this.hp = 125; this.maxHp = 125; this.color = '#ffae00';
+            this.width = 38; this.scale = 1.3; this.score = 20;
+            this.knockbackResistance = 0.18;
+            this.punchChargeTimer = 0;
+            this.punchCooldown = 55;
+            this.punchTarget = null;
+        } else if (type === 'cyberKamikaze') {
+            this.hp = 42; this.maxHp = 42; this.color = '#ff2638';
+            this.width = 27; this.scale = 1; this.score = 16;
+            this.speed = GAME_UNIT_SPEED * 1.15;
+            this.detonationTimer = 0;
+            this.detonationStarted = false;
+        } else if (type === 'cyberRanger') {
+            this.hp = 44; this.maxHp = 44; this.color = '#39ff88';
+            this.width = 27; this.scale = 1; this.score = 17;
+            this.rangerSafeDistance = 235;
+            this.fireCooldown = 120;
         } else if (type === 'boss') {
             this.hp = 400; this.maxHp = 400; this.color = '#ff00aa';
             this.width = 50; this.scale = 1.6; this.score = 100; this.phase = 1;
@@ -1424,10 +1648,187 @@ class Enemy {
 
         // Medida exacta de los pies respecto al centro geométrico: 25 * scale
         // Esto garantiza que toquen el suelo base de forma 100% matemática sin flotar
-        this.feetOffset = 25 * this.scale;
-        this.height = this.feetOffset * 2;
+        if (type !== 'drone') {
+            this.feetOffset = 25 * this.scale;
+            this.height = this.feetOffset * 2;
+        }
 
         this.animFrame = Math.random() * 10;
+    }
+
+    updateCyberBehavior(player, projectiles, floorY, arenaWidth, onMeleeDamage, onAreaDamage, onSelfDestruct, particles, deltaTime) {
+        const dx = player.x - this.x;
+        const dy = player.y - this.y;
+        const distance = Math.abs(dx);
+        const timeScale = this.cryoSlowTimer > 0 ? 0.5 : 1;
+        this.facingRight = dx > 0;
+        this.vx = 0;
+
+        if (this.type === 'cyberNinja') {
+            this.ninjaDashCooldown = Math.max(0, this.ninjaDashCooldown - timeScale * deltaTime);
+            if (this.ninjaDashTimer > 0) {
+                this.vx = this.ninjaDashDirection * this.speed * 3.4;
+                this.ninjaDashTimer = Math.max(0, this.ninjaDashTimer - timeScale * deltaTime);
+                if (!this.ninjaDashHit &&
+                    Math.abs(player.x - this.x) <= 34 &&
+                    Math.abs(dy) < 45 &&
+                    onMeleeDamage) {
+                    this.ninjaDashHit = true;
+                    onMeleeDamage(7 * this.damageMultiplier);
+                }
+                if (particles && Math.random() < 0.75) {
+                    particles.push(new Particle(
+                        this.x - this.ninjaDashDirection * 12,
+                        this.y - 8,
+                        -this.ninjaDashDirection * (2 + Math.random() * 3),
+                        (Math.random() - 0.5) * 3,
+                        this.color,
+                        3.5,
+                        14
+                    ));
+                }
+            } else if (distance >= 135 && distance <= 285 && this.ninjaDashCooldown <= 0) {
+                this.ninjaDashDirection = Math.sign(dx) || 1;
+                this.ninjaDashTimer = 9;
+                this.ninjaDashCooldown = 105;
+                this.ninjaDashHit = false;
+            } else {
+                this.vx = this.facingRight ? this.speed : -this.speed;
+            }
+        } else if (this.type === 'cyberBrawler') {
+            this.punchCooldown = Math.max(0, this.punchCooldown - timeScale * deltaTime);
+            if (this.punchChargeTimer > 0) {
+                this.punchChargeTimer = Math.max(0, this.punchChargeTimer - timeScale * deltaTime);
+                this.punchTarget = player;
+                this.isAttacking = true;
+                this.attackAnim = 8;
+                if (this.punchChargeTimer === 0) {
+                    if (Math.abs(player.x - this.x) <= 78 && Math.abs(dy) <= 48 && onMeleeDamage) {
+                        onMeleeDamage(11 * this.damageMultiplier);
+                    }
+                    this.punchCooldown = 88;
+                    this.isAttacking = false;
+                    this.punchTarget = null;
+                }
+            } else if (distance <= 78 && Math.abs(dy) <= 48 && this.punchCooldown <= 0) {
+                this.punchChargeTimer = 24;
+                this.punchTarget = player;
+                this.vx = 0;
+            } else if (distance > 58) {
+                this.vx = this.facingRight ? this.speed : -this.speed;
+            }
+            if (this.punchChargeTimer > 0 && particles && Math.random() < 0.55) {
+                particles.push(new Particle(
+                    this.x + (Math.random() - 0.5) * this.width,
+                    this.y - 12,
+                    (Math.random() - 0.5) * 2,
+                    -1 - Math.random() * 2,
+                    '#fff06a',
+                    3,
+                    16
+                ));
+            }
+        } else if (this.type === 'cyberKamikaze') {
+            if (this.detonationStarted) {
+                this.detonationTimer = Math.max(0, this.detonationTimer - deltaTime);
+                this.vx = 0;
+                if (particles && Math.random() < 0.8) {
+                    const color = Math.floor(this.detonationTimer / 5) % 2 === 0 ? '#ffffff' : this.color;
+                    particles.push(new Particle(
+                        this.x + (Math.random() - 0.5) * this.width,
+                        this.y - 10,
+                        (Math.random() - 0.5) * 5,
+                        (Math.random() - 0.5) * 5,
+                        color,
+                        3 + Math.random() * 2,
+                        16
+                    ));
+                }
+                if (this.detonationTimer === 0) {
+                    const blastRadius = 80;
+                    if (particles) {
+                        for (let index = 0; index < 24; index++) {
+                            const angle = (Math.PI * 2 * index) / 24;
+                            const speed = 3 + Math.random() * 5;
+                            particles.push(new Particle(
+                                this.x,
+                                this.y - 8,
+                                Math.cos(angle) * speed,
+                                Math.sin(angle) * speed,
+                                index % 2 === 0 ? '#ffffff' : this.color,
+                                3 + Math.random() * 3,
+                                22
+                            ));
+                        }
+                    }
+                    if (onAreaDamage) {
+                        onAreaDamage(this.x, this.y, blastRadius, 16 * this.damageMultiplier);
+                    } else if (Math.hypot(dx, dy) <= blastRadius && onMeleeDamage) {
+                        onMeleeDamage(16 * this.damageMultiplier);
+                    }
+                    this.hp = 0;
+                    if (onSelfDestruct) onSelfDestruct(this, player);
+                    else this.isDead = true;
+                    return;
+                }
+            } else if (distance < 40 && Math.abs(dy) < 55) {
+                this.detonationStarted = true;
+                this.detonationTimer = 60;
+                this.vx = 0;
+            } else {
+                this.vx = this.facingRight ? this.speed : -this.speed;
+            }
+        } else if (this.type === 'cyberRanger') {
+            const safeDistance = this.rangerSafeDistance;
+            if (distance < safeDistance - 28) {
+                this.vx = this.facingRight ? -this.speed * 0.9 : this.speed * 0.9;
+            } else if (distance > safeDistance + 48) {
+                this.vx = this.facingRight ? this.speed * 0.7 : -this.speed * 0.7;
+            }
+
+            this.fireCooldown -= timeScale * deltaTime;
+            if (this.fireCooldown <= 0) {
+                const angle = Math.atan2(player.y - (this.y - 12), player.x - this.x);
+                const projectileSpeed = 6;
+                projectiles.push(new Projectile(
+                    this.x,
+                    this.y - 12,
+                    Math.cos(angle) * projectileSpeed,
+                    Math.sin(angle) * projectileSpeed,
+                    this.color,
+                    true,
+                    7 * this.damageMultiplier
+                ));
+                this.fireCooldown = 120;
+            }
+            if (particles && Math.random() < 0.18) {
+                particles.push(new Particle(
+                    this.x + (this.facingRight ? -10 : 10),
+                    this.y - 12,
+                    (Math.random() - 0.5) * 2,
+                    (Math.random() - 0.5) * 2,
+                    this.color,
+                    2.5,
+                    14
+                ));
+            }
+        }
+
+        if (this.cryoSlowTimer > 0) this.vx *= 0.5;
+        this.vy += 0.58 * deltaTime;
+        this.x += (this.vx + this.knockbackVx * this.knockbackResistance) * deltaTime;
+        this.knockbackVx *= Math.pow(0.78, deltaTime);
+        this.y += this.vy * deltaTime;
+        this.x = Math.max(20, Math.min(arenaWidth - 20, this.x));
+        if (this.y + this.feetOffset >= floorY) {
+            this.y = floorY - this.feetOffset;
+            this.vy = 0;
+        }
+        if (this.attackAnim > 0) {
+            this.attackAnim = Math.max(0, this.attackAnim - deltaTime);
+            if (this.attackAnim === 0 && this.punchChargeTimer <= 0) this.isAttacking = false;
+        }
+        this.animFrame += (Math.abs(this.vx) > 0.1 ? 0.28 : 0.08) * deltaTime;
     }
 
     applyElementalStatus(status, duration, source, strength = 1) {
@@ -1514,12 +1915,14 @@ class Enemy {
         this.cryoFreezeTimer = Math.max(0, this.cryoFreezeTimer - deltaTime);
         this.stunTimer = Math.max(0, this.stunTimer - deltaTime);
         this.electroShockTimer = Math.max(0, this.electroShockTimer - deltaTime);
+        this.shieldFlashTimer = Math.max(0, this.shieldFlashTimer - deltaTime);
         return burnDamage;
     }
 
-    update(player, projectiles, floorY, arenaWidth, onMeleeDamage, platforms = [], particles = null, onScreenShake = null, deltaTime = 1, onStatusDamage = null) {
+    update(player, projectiles, floorY, arenaWidth, onMeleeDamage, platforms = [], particles = null, onScreenShake = null, deltaTime = 1, onStatusDamage = null, onAreaDamage = null, onSelfDestruct = null) {
         if (this.isDead) return;
 
+        this.edgeShockCooldown = Math.max(0, this.edgeShockCooldown - deltaTime);
         const burnDamage = this.updateStatusEffects(deltaTime, particles);
         if (burnDamage > 0 && onStatusDamage) onStatusDamage(burnDamage, this);
         if (this.isDead) return;
@@ -1530,6 +1933,62 @@ class Enemy {
             this.attackAnim = 0;
             this.shotChargeTimer = 0;
             this.shotTarget = null;
+            return;
+        }
+
+        if (['cyberNinja', 'cyberBrawler', 'cyberKamikaze', 'cyberRanger'].includes(this.type)) {
+            this.updateCyberBehavior(
+                player,
+                projectiles,
+                floorY,
+                arenaWidth,
+                onMeleeDamage,
+                onAreaDamage,
+                onSelfDestruct,
+                particles,
+                deltaTime
+            );
+            return;
+        }
+
+        if (this.type === 'drone') {
+            this.facingRight = player.x > this.x;
+            this.hoverPhase += 0.045 * deltaTime;
+            const desiredY = this.hoverY + Math.sin(this.hoverPhase) * 9;
+            this.y += (desiredY - this.y) * Math.min(1, 0.08 * deltaTime);
+            const horizontalDistance = player.x - this.x;
+            const safeDistance = 190;
+            if (Math.abs(horizontalDistance) < safeDistance - 25) {
+                this.vx = -Math.sign(horizontalDistance || 1) * this.speed * 0.75;
+            } else if (Math.abs(horizontalDistance) > safeDistance + 45) {
+                this.vx = Math.sign(horizontalDistance) * this.speed * 0.55;
+            } else {
+                this.vx = Math.sin(this.hoverPhase * 0.65) * 0.7;
+            }
+            if (this.cryoSlowTimer > 0) this.vx *= 0.5;
+            this.x = Math.max(25, Math.min(arenaWidth - 25, this.x + this.vx * deltaTime));
+            this.fireCooldown -= deltaTime * (this.cryoSlowTimer > 0 ? 0.5 : 1);
+            if (this.fireCooldown <= 0) {
+                const angle = Math.atan2(player.y - this.y, player.x - this.x);
+                const speed = 5.2;
+                projectiles.push(new Projectile(
+                    this.x, this.y,
+                    Math.cos(angle) * speed,
+                    Math.sin(angle) * speed,
+                    '#ff315c', true, 7 * this.damageMultiplier
+                ));
+                this.fireCooldown = 2.5 * 60;
+            }
+            if (particles && Math.random() < 0.25) {
+                particles.push(new Particle(
+                    this.x + (Math.random() - 0.5) * this.width,
+                    this.y + 8,
+                    (Math.random() - 0.5) * 1.5,
+                    1 + Math.random() * 1.5,
+                    '#ff315c', 2, 14
+                ));
+            }
+            this.animFrame += 0.12 * deltaTime;
             return;
         }
 
@@ -1558,7 +2017,17 @@ class Enemy {
 
         const dx = player.x - this.x;
         const dy = player.y - this.y;
-        this.facingRight = dx > 0;
+        if (this.type === 'shield') {
+            if (Math.abs(dx) > 130) {
+                this.facingRight = dx > 0;
+                this.shieldFacingLocked = false;
+            } else if (!this.shieldFacingLocked) {
+                this.facingRight = dx > 0;
+                this.shieldFacingLocked = true;
+            }
+        } else {
+            this.facingRight = dx > 0;
+        }
         const dist = Math.abs(dx);
         const vertDist = Math.abs(dy);
 
@@ -1568,8 +2037,26 @@ class Enemy {
         if (this.type === 'boss') {
             const ratio = this.hp / this.maxHp;
             if (ratio <= 0.3) this.phase = 3;
-            else if (ratio <= 0.6) this.phase = 2;
+            else if (ratio <= 0.5) this.phase = 2;
             else this.phase = 1;
+            if (ratio <= 0.5 && !this.rageMode) {
+                this.rageMode = true;
+                this.ragePulse = 1;
+            }
+            if (this.rageMode) {
+                this.ragePulse = (this.ragePulse + 0.08 * deltaTime) % (Math.PI * 2);
+                if (particles && Math.random() < 0.8) {
+                    particles.push(new Particle(
+                        this.x + (Math.random() - 0.5) * this.width * 1.4,
+                        this.y - Math.random() * this.height,
+                        (Math.random() - 0.5) * 2.5,
+                        -0.5 - Math.random() * 2,
+                        Math.random() < 0.5 ? '#ff3b30' : '#ff9a24',
+                        2.5 + Math.random() * 2,
+                        20
+                    ));
+                }
+            }
 
             const elemental = this.elementalProfile || ELEMENTAL_ATTACKS.fire;
             const projectileColor = elemental.projectileColor || this.color;
@@ -1587,16 +2074,16 @@ class Enemy {
             // ATAQUE DE LLUVIA DE PLASMA QUE CAE DIRECTAMENTE AL JUGADOR
             // -----------------------------------------------------------------
             const attackTimeScale = this.cryoSlowTimer > 0 ? 0.5 : 1;
-            if (this.meteorCooldown > 0) this.meteorCooldown -= attackTimeScale * deltaTime;
+            if (this.meteorCooldown > 0) this.meteorCooldown -= attackTimeScale * deltaTime * (this.rageMode ? 2 : 1);
             if (this.meteorCooldown <= 0 && this.slamState === 'idle') {
-                this.meteorCooldown = this.phase === 3 ? 80 : (this.phase === 2 ? 100 : 120);
+                this.meteorCooldown = 120;
                 sound.playBossAlert();
 
                 // Proyectil que cae verticalmente desde el cielo apuntado al jugador
                 const mX = player.x + (Math.random() - 0.5) * 30;
                 projectiles.push(new Projectile(mX, -30, (Math.random() - 0.5) * 1.5, 10, projectileColor, true, bossDamage, true));
 
-                if (this.phase >= 2) {
+                if (this.rageMode) {
                     setTimeout(() => {
                         projectiles.push(new Projectile(player.x, -30, 0, 10.5, projectileColor, true, bossDamage, true));
                     }, 200);
@@ -1606,7 +2093,9 @@ class Enemy {
             // -----------------------------------------------------------------
             // ATAQUE DE SALTO Y CAÍDA DIRECTA DEL JEFE SOBRE EL JUGADOR (BOSS SLAM)
             // -----------------------------------------------------------------
-            if (this.slamCooldown > 0) this.slamCooldown -= attackTimeScale * deltaTime;
+            if (this.slamCooldown > 0) {
+                this.slamCooldown -= attackTimeScale * deltaTime * (this.rageMode ? 2 : 1);
+            }
 
             // Si el jugador está subido en una plataforma alta, el jefe prepara su caída de inmediato
             if (player.y < this.y - 65 && this.slamCooldown > 20 && this.slamState === 'idle') {
@@ -1695,7 +2184,7 @@ class Enemy {
                     // ¡IMPACTO CONTUNDENTE DIRECTO TRAS LA CAÍDA EN SUELO BASE!
                     this.slamState = 'recovery';
                     this.slamTimer = 12;
-                    this.slamCooldown = this.phase === 3 ? 55 : (this.phase === 2 ? 70 : 85);
+                    this.slamCooldown = 85;
                     this.shockwaveRadius = 15;
                     sound.playBossSlam();
                     if (onScreenShake) onScreenShake(20);
@@ -1737,7 +2226,9 @@ class Enemy {
         // =========================================================================
         // MOVIMIENTO Y ATAQUE VELOZ DE ENEMIGOS
         // =========================================================================
-        const movementSpeed = this.speed * (this.cryoSlowTimer > 0 ? 0.5 : 1);
+        const movementSpeed = this.speed *
+            (this.cryoSlowTimer > 0 ? 0.5 : 1) *
+            (this.type === 'boss' && this.rageMode ? 1.3 : 1);
         const attackRange = (this.type === 'boss') ? 80 : (this.type === 'special' ? 240 : 46);
 
         // Si el jugador está en una plataforma alta fuera del alcance vertical de cuerpo a cuerpo
@@ -1768,14 +2259,17 @@ class Enemy {
                         this.shotSpeed = speeds[variant];
                         this.shotTurnRate = turnRates[variant];
                         this.shotSpread = spreads[Math.floor(Math.random() * spreads.length)];
-                        this.attackCooldown = bossShot ? 88 : 96;
+                        this.attackCooldown = bossShot
+                            ? (this.rageMode ? 44 : 88)
+                            : 96;
                     }
                 } else {
                     // Ataque cuerpo a cuerpo rápido y contundente
                     this.isAttacking = true;
                     this.attackAnim = this.type === 'fast' ? 7 : (this.type === 'heavy' ? 11 : 9);
                     // Cooldowns reducidos a la mitad para mayor velocidad de ataque
-                    this.attackCooldown = this.type === 'fast' ? 20 : (this.type === 'heavy' ? 38 : (this.type === 'boss' ? 24 : 28));
+                    this.attackCooldown = this.type === 'fast' ? 20 : (this.type === 'heavy' ? 38 :
+                        (this.type === 'boss' ? (this.rageMode ? 12 : 24) : 28));
 
                     // =========================================================================
                     // CORRECCIÓN DEFINITIVA DE DAÑO FALSO EN PLATAFORMAS:
@@ -1806,7 +2300,7 @@ class Enemy {
 
         // Gravedad y posición
         this.vy += 0.58 * deltaTime;
-        this.x += (this.vx + this.knockbackVx) * deltaTime;
+        this.x += (this.vx + this.knockbackVx * this.knockbackResistance) * deltaTime;
         this.knockbackVx *= Math.pow(0.78, deltaTime);
         this.y += this.vy * deltaTime;
 
@@ -1829,6 +2323,40 @@ class Enemy {
 
     draw(ctx) {
         if (this.isDead) return;
+
+        if (this.type === 'drone') {
+            ctx.save();
+            ctx.translate(this.x, this.y);
+            const pulse = 0.75 + Math.sin(this.animFrame * 2) * 0.25;
+            ctx.shadowColor = '#ff315c';
+            ctx.shadowBlur = 18;
+            ctx.fillStyle = '#26334d';
+            ctx.strokeStyle = '#a9c4e8';
+            ctx.lineWidth = 2.5;
+            ctx.beginPath();
+            ctx.roundRect(-17, -9, 34, 18, 6);
+            ctx.fill();
+            ctx.stroke();
+            ctx.fillStyle = '#ff315c';
+            ctx.shadowColor = '#ff1744';
+            ctx.shadowBlur = 22 * pulse;
+            ctx.beginPath();
+            ctx.ellipse(this.facingRight ? 8 : -8, 0, 5, 3.5, 0, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.strokeStyle = '#83dfff';
+            ctx.lineWidth = 2;
+            [-12, 12].forEach((x, index) => {
+                const rotor = Math.sin(this.animFrame * 2.5 + index) * 7;
+                ctx.beginPath();
+                ctx.moveTo(x, -7);
+                ctx.lineTo(x + rotor, -14);
+                ctx.moveTo(x - 6 + rotor, -14);
+                ctx.lineTo(x + 6 + rotor, -14);
+                ctx.stroke();
+            });
+            ctx.restore();
+            return;
+        }
 
         if (this.shotChargeTimer > 0 && this.shotTarget) {
             const pulse = 0.55 + Math.sin(this.shotChargeTimer * 0.55) * 0.2;
@@ -1901,12 +2429,52 @@ class Enemy {
             ctx.restore();
         }
 
+        if (this.type === 'cyberBrawler' && this.punchChargeTimer > 0 && this.punchTarget) {
+            ctx.save();
+            ctx.strokeStyle = '#fff06a';
+            ctx.fillStyle = 'rgba(255, 174, 0, 0.18)';
+            ctx.shadowColor = '#ffae00';
+            ctx.shadowBlur = 18;
+            ctx.lineWidth = 2.5;
+            ctx.setLineDash([6, 5]);
+            ctx.beginPath();
+            ctx.moveTo(this.x, this.y - 12);
+            ctx.lineTo(this.punchTarget.x, this.punchTarget.y - 12);
+            ctx.stroke();
+            ctx.setLineDash([]);
+            ctx.beginPath();
+            ctx.ellipse(this.punchTarget.x, this.punchTarget.y + 8, 36, 10, 0, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.stroke();
+            ctx.restore();
+        }
+
+        if (this.type === 'cyberKamikaze' && this.detonationStarted) {
+            const flashColor = Math.floor(this.detonationTimer / 5) % 2 === 0 ? '#ffffff' : '#ff2638';
+            ctx.save();
+            ctx.strokeStyle = flashColor;
+            ctx.fillStyle = 'rgba(255, 38, 56, 0.12)';
+            ctx.shadowColor = flashColor;
+            ctx.shadowBlur = 22;
+            ctx.lineWidth = 3;
+            ctx.beginPath();
+            ctx.ellipse(this.x, this.y + this.feetOffset, 80, 22, 0, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.stroke();
+            ctx.font = "900 12px 'Orbitron', sans-serif";
+            ctx.textAlign = 'center';
+            ctx.fillText('¡DETONACIÓN!', this.x, this.y - 40);
+            ctx.restore();
+        }
+
         // 3. Dibujo de la figura del enemigo perfectamente alineada a sus pies
         ctx.save();
         ctx.translate(this.x, this.y);
 
         const dir = this.facingRight ? 1 : -1;
-        const statusColor = this.cryoFreezeTimer > 0 || this.cryoSlowTimer > 0
+        const statusColor = this.type === 'boss' && this.rageMode
+            ? (0.5 + Math.sin(this.ragePulse) * 0.5 > 0.5 ? '#ff321f' : '#ff9b24')
+            : this.cryoFreezeTimer > 0 || this.cryoSlowTimer > 0
             ? '#7ceeff'
             : this.electroShockTimer > 0 ? '#e8ff4a'
             : this.poisonTimer > 0 ? '#8dff00'
@@ -1914,7 +2482,53 @@ class Enemy {
                 ? (this.plasmaBurnDamage >= 4 ? '#ff35c9' : '#ff8a1d')
                 : this.armorBreakTimer > 0 ? '#ff5c9a'
                 : this.type === 'boss' && this.phase === 3 ? '#ff0033' : this.color;
-        const c = statusColor;
+        const c = this.type === 'cyberKamikaze' && this.detonationStarted
+            ? (Math.floor(this.detonationTimer / 5) % 2 === 0 ? '#ffffff' : '#ff2638')
+            : statusColor;
+
+        if (this.type === 'cyberNinja' && this.ninjaDashTimer > 0) {
+            ctx.save();
+            ctx.globalAlpha = 0.3;
+            ctx.strokeStyle = '#ff00aa';
+            ctx.shadowColor = '#ff00aa';
+            ctx.shadowBlur = 20;
+            ctx.lineWidth = 4;
+            [-17, -9].forEach(offset => {
+                ctx.beginPath();
+                ctx.ellipse(offset * (this.ninjaDashDirection || 1), -8, 14, 25, 0, 0, Math.PI * 2);
+                ctx.stroke();
+            });
+            ctx.restore();
+        }
+
+        if (this.type === 'boss' && this.rageMode) {
+            ctx.save();
+            const pulseRadius = 32 + (0.5 + Math.sin(this.ragePulse) * 0.5) * 24;
+            ctx.globalAlpha = 0.25;
+            ctx.strokeStyle = '#ff4b24';
+            ctx.shadowColor = '#ff321f';
+            ctx.shadowBlur = 24;
+            ctx.lineWidth = 5;
+            ctx.beginPath();
+            ctx.arc(0, -10, pulseRadius, 0, Math.PI * 2);
+            ctx.stroke();
+            ctx.restore();
+        }
+
+        if (this.type === 'cyberBrawler' && this.punchChargeTimer > 0) {
+            ctx.save();
+            const pulse = 0.2 + (0.5 + Math.sin(this.punchChargeTimer * 0.65) * 0.5) * 0.25;
+            ctx.fillStyle = `rgba(255, 174, 0, ${pulse})`;
+            ctx.strokeStyle = '#fff06a';
+            ctx.shadowColor = '#ffae00';
+            ctx.shadowBlur = 22;
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.ellipse(0, -8, 27, 34, 0, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.stroke();
+            ctx.restore();
+        }
 
         if (this.plasmaBurnTimer > 0 || this.poisonTimer > 0 || this.cryoSlowTimer > 0 ||
             this.cryoFreezeTimer > 0 || this.electroShockTimer > 0 || this.armorBreakTimer > 0) {
@@ -2054,6 +2668,41 @@ class Enemy {
         }
         ctx.stroke();
 
+        if (this.type === 'cyberRanger') {
+            ctx.save();
+            ctx.strokeStyle = '#c5ffd9';
+            ctx.shadowColor = '#39ff88';
+            ctx.shadowBlur = 15;
+            ctx.lineWidth = 4;
+            ctx.beginPath();
+            ctx.moveTo(7 * dir * scale, -4 * scale);
+            ctx.lineTo(22 * dir * scale, -7 * scale);
+            ctx.lineTo(29 * dir * scale, -7 * scale);
+            ctx.stroke();
+            ctx.restore();
+        }
+
+        if (this.type === 'shield') {
+            const shieldX = dir * 17 * scale;
+            ctx.save();
+            ctx.fillStyle = this.shieldFlashTimer > 0
+                ? `rgba(255,255,255,${0.35 + Math.sin(Date.now() / 20) * 0.25})`
+                : 'rgba(48, 223, 255, 0.24)';
+            ctx.strokeStyle = this.shieldFlashTimer > 0 ? '#ffffff' : '#39e9ff';
+            ctx.shadowColor = '#30dfff';
+            ctx.shadowBlur = this.shieldFlashTimer > 0 ? 28 : 16;
+            ctx.lineWidth = 3;
+            ctx.beginPath();
+            ctx.moveTo(shieldX, -20 * scale);
+            ctx.lineTo(shieldX + dir * 10 * scale, -16 * scale);
+            ctx.lineTo(shieldX + dir * 10 * scale, 12 * scale);
+            ctx.lineTo(shieldX, 19 * scale);
+            ctx.closePath();
+            ctx.fill();
+            ctx.stroke();
+            ctx.restore();
+        }
+
         // Barra de vida superior para Boss
         if (this.type === 'boss') {
             ctx.restore();
@@ -2077,5 +2726,41 @@ class Enemy {
         }
 
         ctx.restore();
+    }
+}
+
+class DroneEnemy extends Enemy {
+    constructor(x, y) {
+        super(x, y, 'drone');
+    }
+}
+
+class ShieldEnemy extends Enemy {
+    constructor(x, y) {
+        super(x, y, 'shield');
+    }
+}
+
+class CyberNinja extends Enemy {
+    constructor(x, y) {
+        super(x, y, 'cyberNinja');
+    }
+}
+
+class CyberBrawler extends Enemy {
+    constructor(x, y) {
+        super(x, y, 'cyberBrawler');
+    }
+}
+
+class CyberKamikaze extends Enemy {
+    constructor(x, y) {
+        super(x, y, 'cyberKamikaze');
+    }
+}
+
+class CyberRanger extends Enemy {
+    constructor(x, y) {
+        super(x, y, 'cyberRanger');
     }
 }
