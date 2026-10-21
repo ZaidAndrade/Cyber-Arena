@@ -102,6 +102,10 @@ canvas#gameCanvas {
     display: block;
     width: 100%;
     height: 100%;
+    --arena-electric-blue: #00f3ff;
+    --arena-electric-yellow: #ffcc00;
+    --arena-laser-red: #ff2638;
+    --arena-pad-cyan: #00f3ff;
     box-shadow: 0 0 40px rgba(0, 243, 255, 0.15);
     background-color: #04040c;
     touch-action: none;
@@ -338,6 +342,84 @@ canvas#gameCanvas {
 
 .customization-panel {
     max-width: 520px;
+}
+
+.upgrades-panel {
+    width: min(980px, 100%);
+}
+
+.upgrades-toolbar {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin: 16px 0;
+}
+
+.upgrade-message {
+    flex: 1 1 100%;
+    min-height: 1.3em;
+    color: #ff7fdc;
+    font-family: var(--font-heading);
+    font-size: 0.82rem;
+    text-align: center;
+}
+
+.upgrades-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 14px;
+}
+
+.upgrade-card {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 18px;
+    background: linear-gradient(145deg, rgba(25, 16, 48, 0.94), rgba(9, 16, 34, 0.95));
+    border: 1px solid rgba(176, 0, 255, 0.5);
+    border-radius: 12px;
+    box-shadow: inset 0 0 18px rgba(176, 0, 255, 0.08), 0 0 14px rgba(0, 243, 255, 0.08);
+}
+
+.upgrade-card h3 {
+    margin: 0;
+    color: #d9a0ff;
+    font-family: var(--font-heading);
+    font-size: 1.02rem;
+    text-shadow: 0 0 10px rgba(176, 0, 255, 0.7);
+}
+
+.upgrade-card p {
+    min-height: 3em;
+    margin: 0;
+    color: #c8d1e2;
+    font-size: 0.9rem;
+    line-height: 1.5;
+}
+
+.upgrade-level {
+    color: var(--neon-cyan);
+    font-family: var(--font-heading);
+    font-size: 0.83rem;
+    font-weight: 700;
+}
+
+.upgrade-next {
+    color: #a9f9ff;
+    font-size: 0.9rem;
+}
+
+.upgrade-cost {
+    color: #ffdc5e;
+    font-family: var(--font-heading);
+    font-weight: 700;
+}
+
+.upgrade-card .btn:disabled {
+    cursor: not-allowed;
+    opacity: 0.5;
+    filter: grayscale(0.6);
 }
 
 .customization-player-select {
@@ -738,6 +820,10 @@ canvas#gameCanvas {
     display: none;
 }
 
+.p2-energy-section.hidden {
+    display: none;
+}
+
 .weapon-selectors {
     display: flex;
     flex-direction: column;
@@ -878,6 +964,17 @@ canvas#gameCanvas {
     font-weight: 700;
     letter-spacing: 1px;
     margin-top: 2px;
+}
+
+.wave-badge.boss-rage {
+    color: #ff6338;
+    text-shadow: 0 0 8px #ff321f, 0 0 18px rgba(255, 86, 36, 0.9);
+    animation: boss-rage-pulse 0.65s ease-in-out infinite alternate;
+}
+
+@keyframes boss-rage-pulse {
+    from { filter: brightness(0.9); }
+    to { filter: brightness(1.5); }
 }
 
 .hud-music-badge {
