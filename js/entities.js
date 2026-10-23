@@ -415,11 +415,13 @@ class Projectile {
         this.owner = null;
         this.rangeRemaining = Infinity;
         this.hitTargets = new Set();
+        this.magneticDeflectCooldown = 0;
     }
 
     update(width, floorY = 9999) {
         const previousX = this.x;
         const previousY = this.y;
+        this.magneticDeflectCooldown = Math.max(0, this.magneticDeflectCooldown - 1);
         if (this.guidance && this.guidance.target) {
             const dx = this.guidance.target.x - this.x;
             const dy = this.guidance.target.y + 3 - this.y;
@@ -1573,6 +1575,22 @@ class Enemy {
         this.shieldFlashTimer = 0;
         this.rageMode = false;
         this.ragePulse = 0;
+        this.magneticChargeTimer = 0;
+        this.magneticPulseTimer = 0;
+        this.magneticCooldown = 0;
+        this.trooperAimTimer = 0;
+        this.trooperAimTarget = null;
+        this.trooperBurstShots = 0;
+        this.trooperShotTimer = 0;
+        this.trooperBurstCooldown = 0;
+        this.acidTelegraphTimer = 0;
+        this.acidPoolTimer = 0;
+        this.acidPoolTickTimer = 0;
+        this.acidPoolX = x;
+        this.teleportWarningTimer = 0;
+        this.teleportTargetX = x;
+        this.teleportRecoveryTimer = 0;
+        this.teleportCooldown = 0;
 
         this.speed = GAME_UNIT_SPEED;
         this.damageMultiplier = 1;
@@ -1629,9 +1647,39 @@ class Enemy {
             this.width = 27; this.scale = 1; this.score = 17;
             this.rangerSafeDistance = 235;
             this.fireCooldown = 120;
+        } else if (type === 'magnetUnit') {
+            this.hp = 78; this.maxHp = 78; this.color = '#4bdcff';
+            this.width = 31; this.scale = 1.05; this.score = 20;
+            this.speed = GAME_UNIT_SPEED * 0.78;
+            this.magneticCooldown = 150;
+            this.attackCooldown = 35;
+        } else if (type === 'assaultTrooper') {
+            this.hp = 48; this.maxHp = 48; this.color = '#a4ff58';
+            this.width = 27; this.scale = 1; this.score = 18;
+            this.speed = GAME_UNIT_SPEED * 0.9;
+            this.trooperBurstCooldown = 80;
+            this.attackCooldown = 30;
+        } else if (type === 'corrosiveMutant') {
+            this.hp = 62; this.maxHp = 62; this.color = '#b8ff38';
+            this.width = 30; this.scale = 1.05; this.score = 20;
+            this.speed = GAME_UNIT_SPEED * 0.82;
+            this.acidCooldown = 145;
+        } else if (type === 'dimensionalInfiltrator') {
+            this.hp = 40; this.maxHp = 40; this.color = '#c184ff';
+            this.width = 24; this.scale = 0.92; this.score = 22;
+            this.speed = GAME_UNIT_SPEED * 1.05;
+            this.teleportCooldown = 100;
+            this.attackCooldown = 28;
         } else if (type === 'boss') {
             this.hp = 400; this.maxHp = 400; this.color = '#ff00aa';
             this.width = 50; this.scale = 1.6; this.score = 100; this.phase = 1;
+            this.phaseTransitionTimer = 0;
+            this.phaseAttackCooldown = 150;
+            this.phaseAttackChargeTimer = 0;
+            this.phaseAttackTargetX = x;
+            this.phaseAttackTargetY = y;
+            this.meteorFollowupTimer = 0;
+            this.meteorFollowupX = 0;
             this.element = 'fire';
             this.secondaryElement = null;
             this.accentColor = this.color;
@@ -1656,7 +1704,7 @@ class Enemy {
         this.animFrame = Math.random() * 10;
     }
 
-    updateCyberBehavior(player, projectiles, floorY, arenaWidth, onMeleeDamage, onAreaDamage, onSelfDestruct, particles, deltaTime) {
+    updateCyberBehavior(player, projectiles, floorY, arenaWidth, onMeleeDamage, onAreaDamage, onSelfDestruct, particles, deltaTime, onHazardDamage) {
         const dx = player.x - this.x;
         const dy = player.y - this.y;
         const distance = Math.abs(dx);
@@ -1812,6 +1860,144 @@ class Enemy {
                     14
                 ));
             }
+        } else if (this.type === 'magnetUnit') {
+            this.attackCooldown = Math.max(0, this.attackCooldown - timeScale * deltaTime);
+            this.magneticCooldown = Math.max(0, this.magneticCooldown - timeScale * deltaTime);
+            if (this.magneticChargeTimer > 0) {
+                this.magneticChargeTimer = Math.max(0, this.magneticChargeTimer - timeScale * deltaTime);
+                if (this.magneticChargeTimer === 0) {
+                    this.magneticPulseTimer = 34;
+                    this.magneticCooldown = 220;
+                }
+            } else if (this.magneticPulseTimer > 0) {
+                this.magneticPulseTimer = Math.max(0, this.magneticPulseTimer - deltaTime);
+                projectiles.forEach(projectile => {
+                    if (projectile.isHostile || !projectile.active || projectile.magneticDeflectCooldown > 0 ||
+                        Math.hypot(projectile.x - this.x, projectile.y - (this.y - 8)) > 78) return;
+                    const angle = Math.atan2(projectile.y - this.y, projectile.x - this.x);
+                    projectile.angle = angle;
+                    projectile.vx = Math.cos(angle) * projectile.speed;
+                    projectile.vy = Math.sin(angle) * projectile.speed;
+                    projectile.guidance = null;
+                    projectile.magneticDeflectCooldown = 45;
+                });
+            } else if (this.magneticCooldown <= 0 && distance <= 260) {
+                this.magneticChargeTimer = 30;
+            }
+            if (distance > 54) {
+                this.vx = this.facingRight ? this.speed : -this.speed;
+            } else if (this.attackCooldown <= 0 && Math.abs(dy) < 48) {
+                this.isAttacking = true;
+                this.attackAnim = 9;
+                this.attackCooldown = 42;
+                if (onMeleeDamage) onMeleeDamage(6 * this.damageMultiplier);
+            }
+        } else if (this.type === 'assaultTrooper') {
+            this.attackCooldown = Math.max(0, this.attackCooldown - timeScale * deltaTime);
+            const targetInRange = distance >= 70 && distance <= 230 && Math.abs(dy) < 70;
+            if (this.trooperAimTimer > 0) {
+                this.trooperAimTimer = Math.max(0, this.trooperAimTimer - timeScale * deltaTime);
+                this.vx = 0;
+                if (this.trooperAimTimer === 0) this.trooperBurstShots = 3;
+            } else if (this.trooperBurstShots > 0) {
+                this.vx = 0;
+                this.trooperShotTimer -= deltaTime;
+                if (this.trooperShotTimer <= 0) {
+                    const angle = Math.atan2(player.y - (this.y - 12), player.x - this.x) +
+                        (Math.random() - 0.5) * 0.08;
+                    projectiles.push(new Projectile(
+                        this.x + (this.facingRight ? 12 : -12),
+                        this.y - 12,
+                        Math.cos(angle) * 5.3,
+                        Math.sin(angle) * 5.3,
+                        this.color,
+                        true,
+                        4 * this.damageMultiplier
+                    ));
+                    this.trooperBurstShots--;
+                    this.trooperShotTimer = 12;
+                    if (this.trooperBurstShots === 0) this.trooperBurstCooldown = 175;
+                }
+            } else {
+                this.trooperBurstCooldown = Math.max(0, this.trooperBurstCooldown - timeScale * deltaTime);
+                if (distance < 56 && Math.abs(dy) < 46) {
+                    if (this.attackCooldown <= 0) {
+                        this.isAttacking = true;
+                        this.attackAnim = 8;
+                        this.attackCooldown = 48;
+                        if (onMeleeDamage) onMeleeDamage(6 * this.damageMultiplier);
+                    }
+                } else if (targetInRange && this.trooperBurstCooldown <= 0) {
+                    this.trooperAimTarget = { x: player.x, y: player.y };
+                    this.trooperAimTimer = 24;
+                } else if (distance < 120) {
+                    this.vx = this.facingRight ? -this.speed * 0.7 : this.speed * 0.7;
+                } else if (distance > 180) {
+                    this.vx = this.facingRight ? this.speed : -this.speed;
+                }
+            }
+        } else if (this.type === 'corrosiveMutant') {
+            this.acidCooldown = Math.max(0, this.acidCooldown - timeScale * deltaTime);
+            if (this.acidPoolTimer > 0) {
+                this.acidPoolTimer = Math.max(0, this.acidPoolTimer - deltaTime);
+                this.acidPoolTickTimer -= deltaTime;
+                if (this.acidPoolTickTimer <= 0) {
+                    this.acidPoolTickTimer = 32;
+                    if (onHazardDamage) onHazardDamage(this.acidPoolX, floorY, 58, 3.5 * this.damageMultiplier);
+                }
+            }
+            if (this.acidTelegraphTimer > 0) {
+                this.acidTelegraphTimer = Math.max(0, this.acidTelegraphTimer - timeScale * deltaTime);
+                this.vx = 0;
+                if (this.acidTelegraphTimer === 0) {
+                    this.acidPoolX = Math.max(60, Math.min(arenaWidth - 60, this.acidPoolX));
+                    this.acidPoolTimer = 132;
+                    this.acidPoolTickTimer = 0;
+                    this.acidCooldown = 250;
+                }
+            } else if (this.acidCooldown <= 0 && distance >= 105 && distance <= 260 && Math.abs(dy) < 80) {
+                this.acidPoolX = player.x;
+                this.acidTelegraphTimer = 36;
+                this.vx = 0;
+            } else if (distance > 155) {
+                this.vx = this.facingRight ? this.speed : -this.speed;
+            } else if (distance < 95) {
+                this.vx = this.facingRight ? -this.speed * 0.65 : this.speed * 0.65;
+            }
+        } else if (this.type === 'dimensionalInfiltrator') {
+            this.attackCooldown = Math.max(0, this.attackCooldown - timeScale * deltaTime);
+            this.teleportCooldown = Math.max(0, this.teleportCooldown - timeScale * deltaTime);
+            if (this.teleportWarningTimer > 0) {
+                this.teleportWarningTimer = Math.max(0, this.teleportWarningTimer - timeScale * deltaTime);
+                this.vx = 0;
+                if (this.teleportWarningTimer === 0) {
+                    this.x = Math.max(30, Math.min(arenaWidth - 30, this.teleportTargetX));
+                    this.y = floorY - this.feetOffset;
+                    this.vx = 0;
+                    this.teleportRecoveryTimer = 24;
+                    this.teleportCooldown = 220;
+                }
+            } else if (this.teleportRecoveryTimer > 0) {
+                this.teleportRecoveryTimer = Math.max(0, this.teleportRecoveryTimer - deltaTime);
+                this.vx = 0;
+            } else if (this.teleportCooldown <= 0 && distance >= 90 && distance <= 280) {
+                const preferredX = player.x + (this.facingRight ? 58 : -58);
+                const alternateX = player.x - (this.facingRight ? 58 : -58);
+                this.teleportTargetX = preferredX >= 30 && preferredX <= arenaWidth - 30
+                    ? preferredX
+                    : Math.max(30, Math.min(arenaWidth - 30, alternateX));
+                this.teleportWarningTimer = 25;
+                this.vx = 0;
+            } else if (distance < 48 && Math.abs(dy) < 44) {
+                if (this.attackCooldown <= 0) {
+                    this.isAttacking = true;
+                    this.attackAnim = 8;
+                    this.attackCooldown = 45;
+                    if (onMeleeDamage) onMeleeDamage(7 * this.damageMultiplier);
+                }
+            } else {
+                this.vx = this.facingRight ? this.speed : -this.speed;
+            }
         }
 
         if (this.cryoSlowTimer > 0) this.vx *= 0.5;
@@ -1919,7 +2105,7 @@ class Enemy {
         return burnDamage;
     }
 
-    update(player, projectiles, floorY, arenaWidth, onMeleeDamage, platforms = [], particles = null, onScreenShake = null, deltaTime = 1, onStatusDamage = null, onAreaDamage = null, onSelfDestruct = null) {
+    update(player, projectiles, floorY, arenaWidth, onMeleeDamage, platforms = [], particles = null, onScreenShake = null, deltaTime = 1, onStatusDamage = null, onAreaDamage = null, onSelfDestruct = null, onHazardDamage = null) {
         if (this.isDead) return;
 
         this.edgeShockCooldown = Math.max(0, this.edgeShockCooldown - deltaTime);
@@ -1936,7 +2122,7 @@ class Enemy {
             return;
         }
 
-        if (['cyberNinja', 'cyberBrawler', 'cyberKamikaze', 'cyberRanger'].includes(this.type)) {
+        if (['cyberNinja', 'cyberBrawler', 'cyberKamikaze', 'cyberRanger', 'magnetUnit', 'assaultTrooper', 'corrosiveMutant', 'dimensionalInfiltrator'].includes(this.type)) {
             this.updateCyberBehavior(
                 player,
                 projectiles,
@@ -1946,7 +2132,8 @@ class Enemy {
                 onAreaDamage,
                 onSelfDestruct,
                 particles,
-                deltaTime
+                deltaTime,
+                onHazardDamage
             );
             return;
         }
@@ -2036,9 +2223,40 @@ class Enemy {
         // =========================================================================
         if (this.type === 'boss') {
             const ratio = this.hp / this.maxHp;
-            if (ratio <= 0.3) this.phase = 3;
-            else if (ratio <= 0.5) this.phase = 2;
-            else this.phase = 1;
+            const reachedPhase = ratio <= 0.3 ? 3 : ratio <= 0.65 ? 2 : 1;
+            if (reachedPhase > this.phase) {
+                this.phase++;
+                this.phaseTransitionTimer = 42;
+                this.phaseAttackChargeTimer = 0;
+                this.shotChargeTimer = 0;
+                this.shotTarget = null;
+                this.slamState = 'idle';
+                this.slamCooldown = Math.max(this.slamCooldown, 65);
+                this.phaseAttackCooldown = 120;
+                this.vx = 0;
+                this.vy = 0;
+                if (particles) {
+                    for (let index = 0; index < 14; index++) {
+                        const angle = (index / 14) * Math.PI * 2;
+                        particles.push(new Particle(
+                            this.x,
+                            this.y - 10,
+                            Math.cos(angle) * (3 + Math.random() * 3),
+                            Math.sin(angle) * (2 + Math.random() * 3),
+                            this.accentColor || this.color,
+                            3 + Math.random() * 2,
+                            24
+                        ));
+                    }
+                }
+                sound.playBossAlert();
+            }
+            if (this.phaseTransitionTimer > 0) {
+                this.phaseTransitionTimer = Math.max(0, this.phaseTransitionTimer - deltaTime);
+                this.vx = 0;
+                this.vy = 0;
+                return;
+            }
             if (ratio <= 0.5 && !this.rageMode) {
                 this.rageMode = true;
                 this.ragePulse = 1;
@@ -2074,7 +2292,107 @@ class Enemy {
             // ATAQUE DE LLUVIA DE PLASMA QUE CAE DIRECTAMENTE AL JUGADOR
             // -----------------------------------------------------------------
             const attackTimeScale = this.cryoSlowTimer > 0 ? 0.5 : 1;
-            if (this.meteorCooldown > 0) this.meteorCooldown -= attackTimeScale * deltaTime * (this.rageMode ? 2 : 1);
+            if (this.meteorFollowupTimer > 0) {
+                this.meteorFollowupTimer = Math.max(0, this.meteorFollowupTimer - deltaTime);
+                if (this.meteorFollowupTimer === 0 && !this.isDead) {
+                    projectiles.push(new Projectile(
+                        this.meteorFollowupX, -30, 0, 10.5,
+                        projectileColor, true, bossDamage, true
+                    ));
+                }
+            }
+
+            if (this.phaseAttackChargeTimer > 0) {
+                this.phaseAttackChargeTimer = Math.max(
+                    0,
+                    this.phaseAttackChargeTimer - attackTimeScale * deltaTime
+                );
+                this.vx = 0;
+                if (this.phaseAttackChargeTimer === 0) {
+                    const projectileCount = this.phase === 3 ? 5 : 3;
+                    if (this.element === 'fire') {
+                        for (let index = 0; index < projectileCount; index++) {
+                            const offset = index - (projectileCount - 1) / 2;
+                            const x = Math.max(
+                                24,
+                                Math.min(arenaWidth - 24, this.phaseAttackTargetX + offset * 42)
+                            );
+                            projectiles.push(new Projectile(
+                                x, -30, 0, 9.5 + this.phase * 0.35,
+                                projectileColor, true, bossDamage, true
+                            ));
+                        }
+                    } else if (this.element === 'earth') {
+                        const direction = Math.sign(this.phaseAttackTargetX - this.x) || 1;
+                        for (let index = 0; index < projectileCount; index++) {
+                            projectiles.push(new Projectile(
+                                this.x + direction * (18 + index * 4),
+                                floorY - 10 - index * 13,
+                                direction * (4.2 + this.phase * 0.35),
+                                0,
+                                projectileColor,
+                                true,
+                                bossDamage,
+                                false
+                            ));
+                        }
+                    } else if (this.element === 'water') {
+                        const direction = Math.sign(this.phaseAttackTargetX - this.x) || 1;
+                        for (let index = 0; index < projectileCount; index++) {
+                            projectiles.push(new Projectile(
+                                this.x + direction * 20,
+                                floorY - 10 - index * 20,
+                                direction * (4.3 + this.phase * 0.35),
+                                0,
+                                projectileColor,
+                                true,
+                                bossDamage,
+                                false
+                            ));
+                        }
+                    } else {
+                        const baseAngle = Math.atan2(
+                            this.phaseAttackTargetY - (this.y - 12 * this.scale),
+                            this.phaseAttackTargetX - this.x
+                        );
+                        const spread = 0.24;
+                        const speed = 7.2;
+                        for (let index = 0; index < projectileCount; index++) {
+                            const offset = index - (projectileCount - 1) / 2;
+                            const angle = baseAngle + offset * spread;
+                            projectiles.push(new Projectile(
+                                this.x,
+                                this.y - 12 * this.scale,
+                                Math.cos(angle) * speed,
+                                Math.sin(angle) * speed,
+                                projectileColor,
+                                true,
+                                bossDamage,
+                                false
+                            ));
+                        }
+                    }
+                    this.phaseAttackCooldown = this.phase === 3 ? 210 : 260;
+                }
+                return;
+            }
+
+            this.phaseAttackCooldown = Math.max(
+                0,
+                this.phaseAttackCooldown - attackTimeScale * deltaTime
+            );
+            if (this.phase >= 2 && this.phaseAttackCooldown <= 0 && this.slamState === 'idle') {
+                this.phaseAttackTargetX = player.x;
+                this.phaseAttackTargetY = player.y;
+                this.phaseAttackChargeTimer = this.element === 'earth' ? 34 : 28;
+                this.vx = 0;
+                sound.playBossAlert();
+                return;
+            }
+
+            if (this.meteorCooldown > 0) {
+                this.meteorCooldown -= attackTimeScale * deltaTime * (this.rageMode ? 1.5 : 1);
+            }
             if (this.meteorCooldown <= 0 && this.slamState === 'idle') {
                 this.meteorCooldown = 120;
                 sound.playBossAlert();
@@ -2084,9 +2402,8 @@ class Enemy {
                 projectiles.push(new Projectile(mX, -30, (Math.random() - 0.5) * 1.5, 10, projectileColor, true, bossDamage, true));
 
                 if (this.rageMode) {
-                    setTimeout(() => {
-                        projectiles.push(new Projectile(player.x, -30, 0, 10.5, projectileColor, true, bossDamage, true));
-                    }, 200);
+                    this.meteorFollowupTimer = 18;
+                    this.meteorFollowupX = Math.max(24, Math.min(arenaWidth - 24, player.x));
                 }
             }
 
@@ -2429,6 +2746,124 @@ class Enemy {
             ctx.restore();
         }
 
+        if (this.type === 'boss' && this.phaseAttackChargeTimer > 0) {
+            ctx.save();
+            const elemental = this.elementalProfile || ELEMENTAL_ATTACKS.fire;
+            const warningColor = elemental.projectileColor || this.accentColor || this.color;
+            const pulse = 0.55 + Math.sin(this.phaseAttackChargeTimer * 0.7) * 0.25;
+            ctx.strokeStyle = warningColor;
+            ctx.fillStyle = warningColor;
+            ctx.shadowColor = warningColor;
+            ctx.shadowBlur = 16;
+            ctx.globalAlpha = pulse;
+            ctx.lineWidth = 2;
+            ctx.setLineDash([6, 5]);
+            if (this.element === 'fire') {
+                const count = this.phase === 3 ? 5 : 3;
+                for (let index = 0; index < count; index++) {
+                    const offset = index - (count - 1) / 2;
+                    const x = this.phaseAttackTargetX + offset * 42;
+                    ctx.beginPath();
+                    ctx.ellipse(x, this.y + this.feetOffset, 18, 8, 0, 0, Math.PI * 2);
+                    ctx.stroke();
+                }
+            } else if (this.element === 'earth' || this.element === 'water') {
+                const count = this.phase === 3 ? 5 : 3;
+                const direction = Math.sign(this.phaseAttackTargetX - this.x) || 1;
+                ctx.beginPath();
+                for (let index = 0; index < count; index++) {
+                    const laneY = this.y + this.feetOffset - 10 - index * (this.element === 'water' ? 20 : 13);
+                    ctx.moveTo(this.x, laneY);
+                    ctx.lineTo(this.phaseAttackTargetX + direction * 18, laneY);
+                }
+                ctx.stroke();
+            } else {
+                ctx.beginPath();
+                ctx.moveTo(this.x, this.y - 12 * this.scale);
+                ctx.lineTo(this.phaseAttackTargetX, this.phaseAttackTargetY);
+                ctx.stroke();
+                ctx.beginPath();
+                ctx.arc(this.phaseAttackTargetX, this.phaseAttackTargetY, 20, 0, Math.PI * 2);
+                ctx.stroke();
+            }
+            ctx.setLineDash([]);
+            ctx.font = "900 11px 'Orbitron', sans-serif";
+            ctx.textAlign = 'center';
+            const warningText = this.element === 'fire' ? 'LLUVIA DE FUEGO'
+                : this.element === 'air' ? 'RÁFAGA DE VIENTO'
+                    : this.element === 'earth' ? 'ONDA SÍSMICA'
+                        : 'OLEADA DE AGUA';
+            ctx.fillText(warningText, this.phaseAttackTargetX, this.y + this.feetOffset - 20);
+            ctx.restore();
+        }
+
+        if (this.type === 'boss' && this.phaseTransitionTimer > 0) {
+            ctx.save();
+            const alpha = 0.35 + Math.sin(this.phaseTransitionTimer * 0.6) * 0.2;
+            ctx.globalAlpha = alpha;
+            ctx.strokeStyle = this.accentColor || this.color;
+            ctx.shadowColor = ctx.strokeStyle;
+            ctx.shadowBlur = 26;
+            ctx.lineWidth = 4;
+            ctx.beginPath();
+            ctx.arc(this.x, this.y - 8, 42 + (42 - this.phaseTransitionTimer) * 0.8, 0, Math.PI * 2);
+            ctx.stroke();
+            ctx.restore();
+        }
+
+        if (this.type === 'magnetUnit' && (this.magneticChargeTimer > 0 || this.magneticPulseTimer > 0)) {
+            ctx.save();
+            ctx.strokeStyle = this.magneticChargeTimer > 0 ? '#ffffff' : '#4bdcff';
+            ctx.shadowColor = '#4bdcff';
+            ctx.shadowBlur = 18;
+            ctx.globalAlpha = this.magneticChargeTimer > 0 ? 0.45 : 0.8;
+            ctx.lineWidth = 3;
+            ctx.beginPath();
+            ctx.ellipse(this.x, this.y - 8, 78, 42, 0, 0, Math.PI * 2);
+            ctx.stroke();
+            ctx.restore();
+        }
+
+        if (this.type === 'corrosiveMutant' && (this.acidTelegraphTimer > 0 || this.acidPoolTimer > 0)) {
+            ctx.save();
+            const warning = this.acidTelegraphTimer > 0;
+            const pulse = 0.65 + Math.sin(Date.now() / 100) * 0.2;
+            ctx.strokeStyle = warning ? '#fff06a' : '#b8ff38';
+            ctx.fillStyle = warning ? 'rgba(255, 240, 106, 0.14)' : 'rgba(184, 255, 56, 0.24)';
+            ctx.shadowColor = warning ? '#fff06a' : '#8dff00';
+            ctx.shadowBlur = 15;
+            ctx.globalAlpha = warning ? pulse : 0.85;
+            ctx.lineWidth = 2.5;
+            ctx.beginPath();
+            ctx.ellipse(this.acidPoolX, this.y + this.feetOffset, 58, 14, 0, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.stroke();
+            if (warning) {
+                ctx.font = "900 11px 'Orbitron', sans-serif";
+                ctx.textAlign = 'center';
+                ctx.fillText('¡ÁCIDO!', this.acidPoolX, this.y + this.feetOffset - 17);
+            }
+            ctx.restore();
+        }
+
+        if (this.type === 'dimensionalInfiltrator' && this.teleportWarningTimer > 0) {
+            ctx.save();
+            ctx.strokeStyle = '#e8b8ff';
+            ctx.fillStyle = 'rgba(193, 132, 255, 0.16)';
+            ctx.shadowColor = '#c184ff';
+            ctx.shadowBlur = 18;
+            ctx.globalAlpha = 0.55 + Math.sin(Date.now() / 65) * 0.3;
+            ctx.lineWidth = 2.5;
+            ctx.beginPath();
+            ctx.ellipse(this.teleportTargetX, this.y + this.feetOffset, 22, 9, 0, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.stroke();
+            ctx.font = "900 10px 'Orbitron', sans-serif";
+            ctx.textAlign = 'center';
+            ctx.fillText('¡SALTO!', this.teleportTargetX, this.y + this.feetOffset - 14);
+            ctx.restore();
+        }
+
         if (this.type === 'cyberBrawler' && this.punchChargeTimer > 0 && this.punchTarget) {
             ctx.save();
             ctx.strokeStyle = '#fff06a';
@@ -2472,7 +2907,9 @@ class Enemy {
         ctx.translate(this.x, this.y);
 
         const dir = this.facingRight ? 1 : -1;
-        const statusColor = this.type === 'boss' && this.rageMode
+        const statusColor = this.type === 'boss' && this.phaseTransitionTimer > 0
+            ? (this.accentColor || this.color)
+            : this.type === 'boss' && this.rageMode
             ? (0.5 + Math.sin(this.ragePulse) * 0.5 > 0.5 ? '#ff321f' : '#ff9b24')
             : this.cryoFreezeTimer > 0 || this.cryoSlowTimer > 0
             ? '#7ceeff'
@@ -2682,6 +3119,70 @@ class Enemy {
             ctx.restore();
         }
 
+        if (this.type === 'assaultTrooper') {
+            ctx.save();
+            ctx.strokeStyle = this.trooperAimTimer > 0 ? '#ffffff' : '#d5ffae';
+            ctx.shadowColor = this.color;
+            ctx.shadowBlur = 13;
+            ctx.lineWidth = 3.5;
+            ctx.beginPath();
+            ctx.moveTo(7 * dir * scale, -4 * scale);
+            ctx.lineTo(22 * dir * scale, -8 * scale);
+            ctx.lineTo(30 * dir * scale, -8 * scale);
+            ctx.stroke();
+            if (this.trooperAimTimer > 0 && this.trooperAimTarget) {
+                ctx.globalAlpha = 0.65;
+                ctx.setLineDash([5, 5]);
+                ctx.beginPath();
+                ctx.moveTo(0, -12 * scale);
+                ctx.lineTo(this.trooperAimTarget.x - this.x, this.trooperAimTarget.y - this.y);
+                ctx.stroke();
+                ctx.setLineDash([]);
+            }
+            ctx.restore();
+        }
+
+        if (this.type === 'magnetUnit') {
+            ctx.save();
+            ctx.strokeStyle = '#a6f5ff';
+            ctx.shadowColor = '#4bdcff';
+            ctx.shadowBlur = 14;
+            ctx.lineWidth = 3;
+            ctx.beginPath();
+            ctx.arc(-12 * scale, -8 * scale, 7 * scale, -Math.PI / 2, Math.PI / 2);
+            ctx.arc(12 * scale, -8 * scale, 7 * scale, Math.PI / 2, Math.PI * 1.5);
+            ctx.stroke();
+            ctx.restore();
+        }
+
+        if (this.type === 'corrosiveMutant') {
+            ctx.save();
+            ctx.strokeStyle = '#e1ff75';
+            ctx.shadowColor = '#8dff00';
+            ctx.shadowBlur = 12;
+            ctx.lineWidth = 3;
+            ctx.beginPath();
+            ctx.moveTo(-10 * scale, -14 * scale);
+            ctx.lineTo(-15 * scale, -22 * scale);
+            ctx.moveTo(9 * scale, -15 * scale);
+            ctx.lineTo(16 * scale, -21 * scale);
+            ctx.stroke();
+            ctx.restore();
+        }
+
+        if (this.type === 'dimensionalInfiltrator' && this.teleportRecoveryTimer > 0) {
+            ctx.save();
+            ctx.globalAlpha = 0.35 + Math.sin(Date.now() / 45) * 0.2;
+            ctx.strokeStyle = '#e8b8ff';
+            ctx.shadowColor = '#c184ff';
+            ctx.shadowBlur = 15;
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.ellipse(0, -8, 17, 29, 0, 0, Math.PI * 2);
+            ctx.stroke();
+            ctx.restore();
+        }
+
         if (this.type === 'shield') {
             const shieldX = dir * 17 * scale;
             ctx.save();
@@ -2712,6 +3213,11 @@ class Enemy {
             const barX = this.x - bWidth / 2;
             const barY = this.y - 30 * scale - 24;
 
+            ctx.font = "900 9px 'Orbitron', sans-serif";
+            ctx.textAlign = 'center';
+            ctx.fillStyle = '#ffffff';
+            ctx.fillText(this.name || 'JEFE', this.x, barY - 5);
+
             ctx.fillStyle = 'rgba(5, 5, 15, 0.85)';
             ctx.fillRect(barX, barY, bWidth, bHeight);
 
@@ -2720,9 +3226,23 @@ class Enemy {
             ctx.shadowBlur = 10;
             ctx.fillRect(barX, barY, Math.max(0, (this.hp / this.maxHp)) * bWidth, bHeight);
 
+            ctx.shadowBlur = 0;
             ctx.strokeStyle = 'rgba(255,255,255,0.4)';
             ctx.lineWidth = 1;
             ctx.strokeRect(barX, barY, bWidth, bHeight);
+            ctx.strokeStyle = 'rgba(255,255,255,0.85)';
+            [0.35, 0.7].forEach(position => {
+                const markerX = barX + bWidth * position;
+                ctx.beginPath();
+                ctx.moveTo(markerX, barY - 2);
+                ctx.lineTo(markerX, barY + bHeight + 2);
+                ctx.stroke();
+            });
+
+            ctx.font = "800 8px 'Orbitron', sans-serif";
+            ctx.fillStyle = this.accentColor || '#ffffff';
+            const phaseLabel = ['FASE I', 'FASE II', 'FASE III'][Math.max(0, this.phase - 1)];
+            ctx.fillText(phaseLabel, this.x, barY + bHeight + 10);
         }
 
         ctx.restore();

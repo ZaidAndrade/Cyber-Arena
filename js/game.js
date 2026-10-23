@@ -2062,7 +2062,10 @@ class Game {
             fast: 0.9,
             shield: 1.1,
             cyberNinja: 0.95,
-            cyberBrawler: 1.3
+            cyberBrawler: 1.3,
+            magnetUnit: 1.05,
+            corrosiveMutant: 1.05,
+            dimensionalInfiltrator: 0.92
         }[type] || 1;
         const spawnX = Math.random() < 0.5
             ? Math.max(30, Math.random() * (this.width * 0.18))
@@ -2889,12 +2892,18 @@ class Game {
             ? 'MODO SUPERVIVENCIA'
             : `ZONA ${this.currentZone}: ${currentZoneTitle}`;
         const waveBadge = document.getElementById('hud-wave');
+        const activeBoss = this.bossActive
+            ? this.enemies.find(enemy => enemy.type === 'boss' && !enemy.isDead)
+            : null;
+        const bossPhaseName = activeBoss
+            ? ['I', 'II', 'III'][activeBoss.phase - 1] || 'I'
+            : null;
         waveBadge.innerText = this.isSurvivalMode
             ? `SUPERVIVENCIA - OLEADA ${this.currentWave}`
             : this.bossActive
-                ? this.enemies.some(enemy => enemy.type === 'boss' && enemy.rageMode)
-                    ? '⚠ JEFE: MODO FURIA'
-                    : '⚠ COMBATE DE JEFE'
+                ? activeBoss?.rageMode
+                    ? `⚠ JEFE: FASE ${bossPhaseName} · FURIA`
+                    : `⚠ JEFE: FASE ${bossPhaseName || 'I'}`
                 : `OLEADA ${this.currentWave} / ${this.maxWaves}`;
         waveBadge.classList.toggle(
             'boss-rage',
@@ -3048,6 +3057,7 @@ class Game {
                 )
                 : { x: this.width / 2, y: floorY - 30 };
             const wasEnraged = e.rageMode;
+            const previousBossPhase = e.type === 'boss' ? e.phase : 0;
             e.update(
                 target,
                 this.projectiles,
@@ -3086,8 +3096,29 @@ class Game {
                         ? killer
                         : this.getAlivePlayers()[0] || this.players[0];
                     this.finishEnemyDeath(enemy, attribution);
+                },
+                (x, y, radius, damage) => {
+                    this.players.forEach(player => {
+                        const feetY = player.y + player.feetOffset;
+                        if (player.hp > 0 && feetY >= floorY - 20 &&
+                            Math.abs(player.x - x) <= radius + player.width / 2 &&
+                            Math.abs(feetY - y) <= 24) {
+                            this.damagePlayer(damage, player);
+                        }
+                    });
                 }
             );
+            if (e.type === 'boss' && e.phase > previousBossPhase) {
+                const phaseName = ['I', 'II', 'III'][e.phase - 1];
+                this.floatingTexts.push(new FloatingText(
+                    e.x,
+                    e.y - e.height - 18,
+                    `FASE ${phaseName}`,
+                    e.accentColor || e.color,
+                    22
+                ));
+                this.updateHUD();
+            }
             if (!wasEnraged && e.rageMode) this.updateHUD();
             if (!e.isDead) allDead = false;
         });
