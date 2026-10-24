@@ -340,6 +340,27 @@ canvas#gameCanvas {
     padding: 24px 12px;
 }
 
+.zone-select-row {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    width: min(420px, 100%);
+    margin: 8px auto 16px;
+    color: var(--neon-cyan);
+    font-family: var(--font-heading);
+    text-align: center;
+}
+
+.zone-select-row select {
+    width: 100%;
+    padding: 10px 12px;
+    border: 1px solid var(--neon-cyan);
+    border-radius: 6px;
+    background: rgba(8, 14, 28, 0.96);
+    color: #fff;
+    font: inherit;
+}
+
 .customization-panel {
     max-width: 520px;
 }
