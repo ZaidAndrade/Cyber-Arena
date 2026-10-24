@@ -16,10 +16,16 @@ const ZONE_SCENES = [
     { name: 'DUBÁI CYBERPUNK', background: 'img/dubai_cyberpunk.png', colors: ['#100a00', '#0b2b38'], accent: '#ffb703' },
     { name: 'RÍO DE JANEIRO NEÓN', background: 'img/rio_neon.png', colors: ['#0a0f1a', '#112d2c'], accent: '#2dd4bf' },
     { name: 'MACHU PICCHU NEÓN', background: 'img/machu_picchu_neon.png', colors: ['#081310', '#0f2d1f'], accent: '#7ef9d8' },
-    { name: 'ROMA ETERNA', background: 'img/rome_neon.png', colors: ['#100807', '#2b1010'], accent: '#ff9f43' },
-    { name: 'GRECIA NEÓN — ATENAS', background: 'img/greece_neon.png', colors: ['#05091b', '#17123a'], accent: '#75cfff' },
-    { name: 'RUSIA NEÓN — MOSCÚ', background: 'img/russia_neon.png', colors: ['#07101d', '#24132d'], accent: '#73d8ff' },
-    { name: 'OCÉANO ANTIGUO — ATLANTIS', background: 'img/ancient_ocean_atlantis.png', colors: ['#02131d', '#063b50'], accent: '#00e5ff' }
+    { name: 'ROMA ETERNA — COLISEO', background: 'img/rome_neon.png', colors: ['#100807', '#2b1010'], accent: '#ff9f43' },
+    { name: 'GRECIA: ATENAS NEÓN — PARTENÓN', background: 'img/greece_neon.png', colors: ['#05091b', '#17123a'], accent: '#75cfff' },
+    { name: 'RUSIA: MOSCÚ NEÓN — SAN BASILIO / KREMLIN', background: 'img/russia_neon.png', colors: ['#07101d', '#24132d'], accent: '#73d8ff' },
+    { name: 'ATLÁNTIDA — OCÉANO ANTIGUO NEÓN', background: 'img/ancient_ocean_atlantis.png', colors: ['#02131d', '#063b50'], accent: '#00e5ff' },
+    { name: 'CHINA — LA GRAN MURALLA DEL DRAGÓN', background: 'img/great_wall_neon.png', colors: ['#10050a', '#321018'], accent: '#ff4d70' },
+    { name: 'INDIA — EL TAJ MAHAL ETERNO', background: 'img/taj_mahal_neon.png', colors: ['#101023', '#30204c'], accent: '#d6b4ff' },
+    { name: 'ISLA DE PASCUA — LOS GUARDIANES DE RAPA NUI', background: 'img/rapa_nui_neon.png', colors: ['#06151b', '#123a42'], accent: '#62e6d4' },
+    { name: 'CATARATAS — IGUAZÚ / SALTOS DEL MONDAY', background: 'img/iguazu_falls_neon.png', colors: ['#031719', '#075244'], accent: '#4dffb5' },
+    { name: 'CATARATAS — SALTOS DEL MONDAY', background: 'img/saltos_monday_neon.png', colors: ['#03131c', '#073b55'], accent: '#57d9ff' },
+    { name: 'URUGUAY — MONTEVIDEO FUTURISTA (PALACIO SALVO)', background: 'img/montevideo_neon.png', colors: ['#07101d', '#172d4b'], accent: '#77d9ff' }
 ];
 
 const ZONE_BACKGROUND_IMAGES = ZONE_SCENES.map(scene => {
@@ -70,7 +76,8 @@ class Game {
         this.state = 'MENU'; // 'MENU', 'PLAYING', 'PAUSED', 'GAMEOVER', 'VICTORY'
         this.previousState = 'MENU';
 
-        this.currentZone = 1; // Zona actual, del 1 al 15.
+        this.currentZone = 1;
+        this.selectedZone = 1;
         this.activeBackground = ZONE_BACKGROUND_IMAGES[this.currentZone - 1];
         this.currentWave = 1;
         this.maxWaves = 5;
@@ -364,6 +371,38 @@ class Game {
 
     getAlivePlayers() {
         return this.players.filter(player => this.isPlayerCombatReady(player));
+    }
+
+    getEnemyTarget(enemy, livingPlayers, floorY, deltaTime) {
+        if (enemy.isDead) return enemy.targetPlayer;
+        if (livingPlayers.length === 0) {
+            enemy.targetPlayer = null;
+            return { x: this.width / 2, y: floorY - 30 };
+        }
+
+        enemy.targetDecisionTimer = Math.max(0, enemy.targetDecisionTimer - deltaTime);
+        const currentTargetIsAlive = livingPlayers.includes(enemy.targetPlayer);
+        if (currentTargetIsAlive && enemy.targetDecisionTimer > 0) return enemy.targetPlayer;
+
+        const pressureWeight = enemy.type === 'boss' ? 35 : 125;
+        const targetScore = player => {
+            const assignedAllies = this.enemies.reduce((count, ally) =>
+                count + (ally !== enemy && !ally.isDead && ally.targetPlayer === player ? 1 : 0), 0
+            );
+            return Math.hypot(player.x - enemy.x, player.y - enemy.y) + assignedAllies * pressureWeight;
+        };
+        let selectedTarget = livingPlayers.reduce((best, player) =>
+            targetScore(player) < targetScore(best) ? player : best
+        );
+
+        if (currentTargetIsAlive && selectedTarget !== enemy.targetPlayer &&
+            targetScore(enemy.targetPlayer) <= targetScore(selectedTarget) + 90) {
+            selectedTarget = enemy.targetPlayer;
+        }
+
+        enemy.targetPlayer = selectedTarget;
+        enemy.targetDecisionTimer = enemy.type === 'boss' ? 105 : 60;
+        return selectedTarget;
     }
 
     getActivePlayer() {
@@ -667,6 +706,19 @@ class Game {
      * Vinculación de botones de la interfaz gráfica
      */
     initUI() {
+        const zoneSelect = document.getElementById('zone-select');
+        ZONE_SCENES.forEach((scene, index) => {
+            const option = document.createElement('option');
+            option.value = String(index + 1);
+            option.textContent = `ZONA ${index + 1}: ${scene.name}`;
+            zoneSelect.appendChild(option);
+        });
+        zoneSelect.value = String(this.selectedZone);
+        zoneSelect.addEventListener('change', () => {
+            this.selectedZone = Number(zoneSelect.value);
+            this.setZone(this.selectedZone);
+        });
+
         [0, 1].forEach(playerIndex => {
             const selector = document.getElementById(`p${playerIndex + 1}-weapon-select`);
             const nextButton = document.getElementById(`p${playerIndex + 1}-weapon-next`);
@@ -1919,7 +1971,7 @@ class Game {
         this.teamInvulnerableTimer = 0;
         this.isSurvivalMode = isSurvivalMode;
         this.survivalWavesCleared = 0;
-        this.currentZone = 1;
+        this.currentZone = this.selectedZone;
         this.activeBackground = ZONE_BACKGROUND_IMAGES[this.currentZone - 1];
         this.currentWave = 1;
         this.setupArenaElements();
@@ -2002,7 +2054,13 @@ class Game {
             { name: 'COLOSSO DEL COLOSSEO', hp: 2400, color: '#ff8f3f', element: 'fire', accent: '#ffd166' },
             { name: 'ORÁCULO DEL PARTENÓN', hp: 2600, color: '#6edbff', element: 'air', accent: '#b8f3ff' },
             { name: 'GUARDIÁN DE LA PLAZA ROJA', hp: 2800, color: '#ff4d70', element: 'earth', accent: '#ffadad' },
-            { name: 'ABISMO DE ATLANTIS', hp: 3000, color: '#00d9e8', element: 'water', accent: '#9bf6ff' }
+            { name: 'ABISMO DE ATLANTIS', hp: 3000, color: '#00d9e8', element: 'water', accent: '#9bf6ff' },
+            { name: 'DRAGÓN DE LA GRAN MURALLA', hp: 3200, color: '#ff4d70', element: 'fire', accent: '#ffadad' },
+            { name: 'GUARDIÁN DEL TAJ MAHAL', hp: 3400, color: '#d6b4ff', element: 'air', accent: '#f0dcff' },
+            { name: 'MOÁI DE RAPA NUI', hp: 3600, color: '#62e6d4', element: 'earth', accent: '#b7fff2' },
+            { name: 'TITÁN DE IGUAZÚ', hp: 3800, color: '#4dffb5', element: 'water', accent: '#b8ffe0' },
+            { name: 'GUARDIÁN DE LOS SALTOS DEL MONDAY', hp: 4000, color: '#57d9ff', element: 'water', accent: '#b8f3ff' },
+            { name: 'CENTINELA DEL PALACIO SALVO', hp: 4200, color: '#77d9ff', element: 'air', accent: '#c5f0ff' }
         ];
 
         if (this.isSurvivalMode) {
@@ -3049,13 +3107,7 @@ class Game {
         // Actualizar enemigos
         let allDead = true;
         this.enemies.forEach(e => {
-            const livingPlayers = this.getAlivePlayers();
-            const target = livingPlayers.length > 0
-                ? livingPlayers.reduce((nearest, player) =>
-                    Math.hypot(player.x - e.x, player.y - e.y) <
-                    Math.hypot(nearest.x - e.x, nearest.y - e.y) ? player : nearest
-                )
-                : { x: this.width / 2, y: floorY - 30 };
+            const target = this.getEnemyTarget(e, this.getAlivePlayers(), floorY, deltaTime);
             const wasEnraged = e.rageMode;
             const previousBossPhase = e.type === 'boss' ? e.phase : 0;
             e.update(

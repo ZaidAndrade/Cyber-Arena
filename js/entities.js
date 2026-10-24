@@ -1544,6 +1544,12 @@ class Enemy {
         this.attackCooldown = Math.floor(Math.random() * 15);
         this.isAttacking = false;
         this.attackAnim = 0;
+        this.targetPlayer = null;
+        this.targetDecisionTimer = Math.random() * 30;
+        this.evadeTimer = 0;
+        this.evadeCooldown = 0;
+        this.evadeScanTimer = Math.random() * 8;
+        this.evadeDirection = 1;
         this.shotChargeTimer = 0;
         this.shotTarget = null;
         this.shotSpeed = 0;
@@ -1702,6 +1708,54 @@ class Enemy {
         }
 
         this.animFrame = Math.random() * 10;
+    }
+
+    updateProjectileEvasion(projectiles, deltaTime, arenaWidth) {
+        if (!['cyberNinja', 'cyberRanger'].includes(this.type)) return false;
+
+        this.evadeCooldown = Math.max(0, this.evadeCooldown - deltaTime);
+        this.evadeScanTimer = Math.max(0, this.evadeScanTimer - deltaTime);
+        if (this.type === 'cyberNinja' && this.ninjaDashTimer > 0) {
+            this.evadeTimer = 0;
+            return false;
+        }
+        if (this.evadeTimer > 0) {
+            this.evadeTimer = Math.max(0, this.evadeTimer - deltaTime);
+            this.vx = this.evadeDirection * this.speed * (this.type === 'cyberNinja' ? 1.45 : 1.2);
+            return true;
+        }
+        if (this.evadeCooldown > 0 || this.evadeScanTimer > 0) return false;
+
+        this.evadeScanTimer = 8;
+        const enemyCenterY = this.y - 8;
+        const threat = projectiles.find(projectile => {
+            if (projectile.isHostile || !projectile.active) return false;
+            const relativeX = projectile.x - this.x;
+            const relativeY = projectile.y - enemyCenterY;
+            const speedSquared = projectile.vx * projectile.vx + projectile.vy * projectile.vy;
+            if (speedSquared === 0) return false;
+
+            const timeToClosest = -(relativeX * projectile.vx + relativeY * projectile.vy) / speedSquared;
+            if (timeToClosest < 1 || timeToClosest > 8) return false;
+
+            const closestX = relativeX + projectile.vx * timeToClosest;
+            const closestY = relativeY + projectile.vy * timeToClosest;
+            return Math.hypot(closestX, closestY) <= this.width * 0.55 + projectile.radius + 4
+                ? projectile
+                : false;
+        });
+        if (!threat) return false;
+
+        const atLeftEdge = this.x <= this.width * 0.6;
+        const atRightEdge = this.x >= arenaWidth - this.width * 0.6;
+        const preferredDirection = Math.abs(threat.vx) > 0.5
+            ? -Math.sign(threat.vx)
+            : this.facingRight ? -1 : 1;
+        this.evadeDirection = atLeftEdge ? 1 : atRightEdge ? -1 : preferredDirection;
+        this.evadeTimer = this.type === 'cyberNinja' ? 7 : 9;
+        this.evadeCooldown = 90 + Math.random() * 30;
+        this.vx = this.evadeDirection * this.speed * (this.type === 'cyberNinja' ? 1.45 : 1.2);
+        return true;
     }
 
     updateCyberBehavior(player, projectiles, floorY, arenaWidth, onMeleeDamage, onAreaDamage, onSelfDestruct, particles, deltaTime, onHazardDamage) {
@@ -2000,6 +2054,7 @@ class Enemy {
             }
         }
 
+        this.updateProjectileEvasion(projectiles, deltaTime, arenaWidth);
         if (this.cryoSlowTimer > 0) this.vx *= 0.5;
         this.vy += 0.58 * deltaTime;
         this.x += (this.vx + this.knockbackVx * this.knockbackResistance) * deltaTime;
@@ -2673,6 +2728,33 @@ class Enemy {
             });
             ctx.restore();
             return;
+        }
+
+        if (this.evadeTimer > 0) {
+            const evadeColor = this.type === 'cyberNinja' ? '#ff00aa' : '#39ff88';
+            ctx.save();
+            ctx.globalAlpha = 0.45 + this.evadeTimer * 0.05;
+            ctx.strokeStyle = evadeColor;
+            ctx.shadowColor = evadeColor;
+            ctx.shadowBlur = 16;
+            ctx.lineWidth = 2;
+            ctx.setLineDash([5, 4]);
+            ctx.beginPath();
+            ctx.ellipse(
+                this.x - this.evadeDirection * 14,
+                this.y + this.feetOffset - 8,
+                this.width * 0.65,
+                Math.max(5, this.feetOffset * 0.25),
+                0,
+                0,
+                Math.PI * 2
+            );
+            ctx.stroke();
+            ctx.setLineDash([]);
+            ctx.font = "900 10px 'Orbitron', sans-serif";
+            ctx.textAlign = 'center';
+            ctx.fillText('¡ESQUIVA!', this.x, this.y - this.height - 5);
+            ctx.restore();
         }
 
         if (this.shotChargeTimer > 0 && this.shotTarget) {
