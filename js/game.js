@@ -75,6 +75,7 @@ class Game {
 
         this.state = 'MENU'; // 'MENU', 'PLAYING', 'PAUSED', 'GAMEOVER', 'VICTORY'
         this.previousState = 'MENU';
+        this.audioSettingsContext = null;
 
         this.currentZone = 1;
         this.selectedZone = 1;
@@ -87,6 +88,13 @@ class Game {
 
         // Carga de datos persistentes desde localStorage
         this.loadProgress();
+        localStorage.setItem('cyberArenaProgress', JSON.stringify(this.campaignProgress));
+        this.rpg = new RpgProgression(() => {
+            this.updateRpgHud();
+            if (!document.getElementById('progress-overlay')?.classList.contains('hidden')) {
+                this.renderRpgProfiles();
+            }
+        });
         this.customization = this.loadCustomization();
         this.player2Customization = this.loadPlayer2Customization();
         this.activePlayerIndex = 0;
@@ -115,14 +123,23 @@ class Game {
         // Estado de controles y efectos
         this.input = new InputManager(
             () => this.pauseGame(),
-            gamepads => this.updateGamepadAssignments(gamepads)
+            gamepads => this.updateGamepadAssignments(gamepads),
+            () => this.toggleAudioSettings()
         );
         this.screenShake = 0;
         this.damageFlash = 0;
         this.teamInvulnerableTimer = 0;
         this.combo = 0;
         this.comboTimer = 0;
+        this.comboXpMilestones = new Set();
         this.gameTime = 0;
+        this.rpgRunCounter = 0;
+        this.rpgRunId = '';
+        this.rpgEventSequence = 0;
+        this.rpgWeaponEventSequence = 0;
+        this.rpgZoneParticipants = new Set();
+        this.rpgWaveParticipants = new Set();
+        this.rpgToastTimeout = null;
         this.bossActive = false;
         this.bossExplosionConfig = {
             radius: 230,
@@ -707,13 +724,7 @@ class Game {
      */
     initUI() {
         const zoneSelect = document.getElementById('zone-select');
-        ZONE_SCENES.forEach((scene, index) => {
-            const option = document.createElement('option');
-            option.value = String(index + 1);
-            option.textContent = `ZONA ${index + 1}: ${scene.name}`;
-            zoneSelect.appendChild(option);
-        });
-        zoneSelect.value = String(this.selectedZone);
+        this.renderZoneSelect();
         zoneSelect.addEventListener('change', () => {
             this.selectedZone = Number(zoneSelect.value);
             this.setZone(this.selectedZone);
@@ -746,8 +757,38 @@ class Game {
                 this.selectCustomizationPlayer(Number(button.dataset.customizationPlayer));
             });
         });
+        document.getElementById('btn-audio-settings').onclick = () => {
+            sound.init();
+            this.openAudioSettings();
+        };
+        document.getElementById('btn-audio-settings-hud').onclick = () => {
+            sound.init();
+            this.openAudioSettings();
+        };
+        document.getElementById('btn-pause-audio-settings').onclick = () => {
+            sound.init();
+            this.openAudioSettings();
+        };
+        document.getElementById('btn-close-audio').onclick = () => this.closeAudioSettings();
+        sound.bindAudioSettingsPanel();
+        this.handleAudioSettingsKeyDown = event => {
+            if (event.code !== 'F3' && !(this.audioSettingsContext && event.code === 'Escape')) return;
+            event.preventDefault();
+            event.stopImmediatePropagation();
+            if (!event.repeat) this.toggleAudioSettings();
+        };
+        window.addEventListener('keydown', this.handleAudioSettingsKeyDown, true);
         document.getElementById('btn-controls').onclick = () => { sound.init(); this.showOverlay('controls-overlay'); };
         document.getElementById('btn-progress').onclick = () => { sound.init(); this.openProgress(); };
+        document.getElementById('btn-pause-progress').onclick = () => this.openProgress();
+        document.getElementById('rpg-profiles').addEventListener('click', event => {
+            const button = event.target.closest('[data-rpg-trial]');
+            if (!button) return;
+            const playerId = button.dataset.rpgTrial;
+            if (!this.rpg.startTrial(playerId)) return;
+            this.showRpgToast(`${playerId}: PRUEBA DE ASCENSO INICIADA`);
+            this.renderRpgProfiles();
+        });
         document.getElementById('btn-reset').onclick = () => { sound.init(); this.resetProgress(); };
         document.getElementById('btn-fullscreen-menu').onclick = () => { sound.init(); this.toggleFullscreen(); };
 
@@ -762,7 +803,10 @@ class Game {
         document.getElementById('btn-upgrade-coins').onclick = () => this.purchaseUpgrade('coinComboLevel');
         document.getElementById('btn-close-upgrades').onclick = () => this.showOverlay('menu-overlay');
         document.getElementById('btn-close-controls').onclick = () => this.showOverlay('menu-overlay');
-        document.getElementById('btn-close-progress').onclick = () => this.showOverlay('menu-overlay');
+        document.getElementById('btn-close-progress').onclick = () => {
+            this.showOverlay(this.state === 'PAUSED' ? 'pause-overlay' : 'menu-overlay');
+        };
+        document.getElementById('btn-reset-progress-screen').onclick = () => this.resetProgress();
         document.getElementById('btn-close-customization').onclick = () => this.cancelCustomization();
         document.getElementById('btn-reset-customization').onclick = () => this.resetCustomizationDraft();
         document.getElementById('customization-form').addEventListener('submit', event => this.saveCustomization(event));
@@ -799,6 +843,7 @@ class Game {
             this.openShop();
         };
         document.getElementById('btn-quit').onclick = () => {
+            this.abandonRpgTrials();
             this.showOverlay('menu-overlay');
             this.state = 'MENU';
             playMenuMusic();
@@ -807,11 +852,13 @@ class Game {
         // Reintentos y finalizaciones
         document.getElementById('btn-retry').onclick = () => this.startGame(this.playerCount, this.isSurvivalMode);
         document.getElementById('btn-gameover-menu').onclick = () => {
+            this.abandonRpgTrials();
             this.showOverlay('menu-overlay');
             this.state = 'MENU';
             playMenuMusic();
         };
         document.getElementById('btn-victory-menu').onclick = () => {
+            this.abandonRpgTrials();
             this.showOverlay('menu-overlay');
             this.state = 'MENU';
             playMenuMusic();
@@ -821,8 +868,8 @@ class Game {
         const soundBtn = document.getElementById('btn-sound-toggle');
         soundBtn.onclick = () => {
             sound.init();
-            const isEnabled = sound.toggleSound();
-            musicManager.setMuted(!isEnabled);
+            sound.toggleSound();
+            sound.syncAudioControls();
             this.updateHUD();
         };
 
@@ -859,6 +906,53 @@ class Game {
             row.append(name, select);
             container.appendChild(row);
         });
+    }
+
+    toggleAudioSettings() {
+        if (this.audioSettingsContext) {
+            this.closeAudioSettings();
+            return;
+        }
+        this.openAudioSettings();
+    }
+
+    openAudioSettings() {
+        if (this.audioSettingsContext || !['MENU', 'PLAYING', 'PAUSED'].includes(this.state)) return;
+        if (!document.getElementById('intro-overlay')?.classList.contains('hidden')) return;
+
+        const activeOverlay = document.querySelector('.overlay:not(.hidden)');
+        this.audioSettingsContext = {
+            state: this.state,
+            overlayId: activeOverlay?.id || null,
+            opener: document.activeElement
+        };
+
+        if (this.state === 'PLAYING') this.pauseGame();
+        this.input.setGameplayInputBlocked(true);
+
+        const isGameOverlay = this.state === 'PAUSED';
+        this.showOverlay('audio-settings-overlay', !isGameOverlay);
+        document.getElementById('btn-close-audio')?.focus();
+    }
+
+    closeAudioSettings() {
+        const context = this.audioSettingsContext;
+        if (!context) return;
+
+        this.audioSettingsContext = null;
+        this.input.setGameplayInputBlocked(false);
+        this.input.clearActions();
+
+        if (context.state === 'PLAYING') {
+            this.resumeGame();
+        } else {
+            const fallbackOverlay = context.state === 'PAUSED' ? 'pause-overlay' : 'menu-overlay';
+            this.showOverlay(context.overlayId || fallbackOverlay);
+        }
+
+        if (context.opener instanceof HTMLElement && context.opener.isConnected) {
+            context.opener.focus();
+        }
     }
 
     /**
@@ -950,6 +1044,59 @@ class Game {
         this.bestScore = parseInt(localStorage.getItem('bestScore')) || 0;
         this.totalKills = parseInt(localStorage.getItem('totalEnemiesDefeated')) || 0;
         this.totalBosses = parseInt(localStorage.getItem('totalBossesDefeated')) || 0;
+        this.loadCampaignProgress();
+    }
+
+    loadCampaignProgress() {
+        const defaults = {
+            unlockedZoneIndex: 1,
+            completedZones: [],
+            totalBossesDefeated: this.totalBosses,
+            totalVictories: 0
+        };
+        let saved;
+
+        try {
+            saved = JSON.parse(localStorage.getItem('cyberArenaProgress') || 'null');
+        } catch (error) {
+            console.warn('No se pudo leer el progreso de campaña; se usarán los valores iniciales.', error);
+            saved = null;
+        }
+
+        if (!saved || typeof saved !== 'object' || Array.isArray(saved)) {
+            this.campaignProgress = defaults;
+            this.totalVictories = defaults.totalVictories;
+            return;
+        }
+
+        const savedUnlockedZone = Number(saved.unlockedZoneIndex);
+        const unlockedZoneIndex = Number.isInteger(savedUnlockedZone)
+            ? Math.max(1, Math.min(ZONE_SCENES.length, savedUnlockedZone))
+            : defaults.unlockedZoneIndex;
+        const completedZones = Array.isArray(saved.completedZones)
+            ? [...new Set(saved.completedZones.filter(zone =>
+                Number.isInteger(zone) && zone >= 1 && zone <= ZONE_SCENES.length
+            ))].sort((first, second) => first - second)
+            : defaults.completedZones;
+        const savedBosses = Number(saved.totalBossesDefeated);
+        const savedVictories = Number(saved.totalVictories);
+
+        const nextAfterCompleted = completedZones.reduce(
+            (nextZone, zone) => Math.max(nextZone, Math.min(ZONE_SCENES.length, zone + 1)),
+            1
+        );
+        this.campaignProgress = {
+            unlockedZoneIndex: Math.max(unlockedZoneIndex, nextAfterCompleted),
+            completedZones,
+            totalBossesDefeated: Number.isInteger(savedBosses) && savedBosses >= 0
+                ? savedBosses
+                : defaults.totalBossesDefeated,
+            totalVictories: Number.isInteger(savedVictories) && savedVictories >= 0
+                ? savedVictories
+                : defaults.totalVictories
+        };
+        this.totalBosses = this.campaignProgress.totalBossesDefeated;
+        this.totalVictories = this.campaignProgress.totalVictories;
     }
 
     loadCustomization() {
@@ -1517,6 +1664,10 @@ class Game {
         localStorage.setItem('bestScore', this.bestScore);
         localStorage.setItem('totalEnemiesDefeated', this.totalKills);
         localStorage.setItem('totalBossesDefeated', this.totalBosses);
+        this.campaignProgress.totalBossesDefeated = this.totalBosses;
+        this.campaignProgress.totalVictories = this.totalVictories;
+        localStorage.setItem('cyberArenaProgress', JSON.stringify(this.campaignProgress));
+        this.rpg?.saveAll();
         this.updateHUD();
     }
 
@@ -1535,6 +1686,8 @@ class Game {
             localStorage.removeItem('bestScore');
             localStorage.removeItem('totalEnemiesDefeated');
             localStorage.removeItem('totalBossesDefeated');
+            localStorage.removeItem('cyberArenaProgress');
+            this.rpg?.reset();
 
             this.playerProgress = [0, 1].map(() => ({
                 coins: 0,
@@ -1545,6 +1698,15 @@ class Game {
             this.bestScore = 0;
             this.totalKills = 0;
             this.totalBosses = 0;
+            this.totalVictories = 0;
+            this.campaignProgress = {
+                unlockedZoneIndex: 1,
+                completedZones: [],
+                totalBossesDefeated: 0,
+                totalVictories: 0
+            };
+            this.selectedZone = 1;
+            this.renderZoneSelect();
 
             this.players.forEach((player, index) => {
                 player.weapon = WEAPONS[this.playerProgress[index].equippedWeapon];
@@ -1552,6 +1714,7 @@ class Game {
             });
 
             this.saveProgress();
+            this.openProgress();
             alert("Progreso reiniciado correctamente.");
         }
     }
@@ -1751,7 +1914,7 @@ class Game {
                 </div>
                 <div class="stat-box">
                     <div class="stat-box-title">Jefes Derrotados</div>
-                    <div class="stat-box-val" style="color: #ff0055;">${this.totalBosses} 👑</div>
+                    <div class="stat-box-val" style="color: #ff0055;">${this.campaignProgress.totalBossesDefeated} 👑</div>
                 </div>
                 <div class="stat-box">
                     <div class="stat-box-title">Arsenal P1 / P2</div>
@@ -1759,7 +1922,249 @@ class Game {
                 </div>
             </div>
         `;
+        this.renderCampaignProgress();
+        this.renderRpgProfiles();
         this.showOverlay('progress-overlay');
+    }
+
+    renderCampaignProgress() {
+        const summary = document.getElementById('campaign-progress');
+        const zoneList = document.getElementById('zone-progress-list');
+        if (!summary || !zoneList) return;
+
+        const unlockedCount = this.campaignProgress.unlockedZoneIndex;
+        const completionPercent = Math.round((unlockedCount / ZONE_SCENES.length) * 100);
+        summary.innerHTML = `
+            <section class="campaign-progress-summary" aria-label="Resumen del progreso de campaña">
+                <div class="campaign-progress-head">
+                    <span>CAMPAÑA DESBLOQUEADA</span>
+                    <strong>${completionPercent}%</strong>
+                </div>
+                <div class="campaign-progress-track" role="progressbar"
+                    aria-label="Porcentaje global desbloqueado"
+                    aria-valuemin="0" aria-valuemax="100" aria-valuenow="${completionPercent}">
+                    <span style="width: ${completionPercent}%"></span>
+                </div>
+                <div class="campaign-progress-counters">
+                    <span>Zonas disponibles: ${unlockedCount} / ${ZONE_SCENES.length}</span>
+                    <span>Victorias de campaña: ${this.campaignProgress.totalVictories}</span>
+                    <span>Jefes elementales: ${this.campaignProgress.totalBossesDefeated}</span>
+                </div>
+            </section>
+        `;
+
+        zoneList.innerHTML = ZONE_SCENES.map((scene, index) => {
+            const zoneNumber = index + 1;
+            const completed = this.campaignProgress.completedZones.includes(zoneNumber);
+            const available = zoneNumber <= this.campaignProgress.unlockedZoneIndex;
+            const statusClass = completed ? 'completed' : available ? 'available' : 'locked';
+            const statusText = completed
+                ? 'COMPLETADO ✅'
+                : available
+                    ? 'DISPONIBLE ⚔️'
+                    : 'BLOQUEADO 🔒';
+            return `
+                <article class="zone-progress-card ${statusClass}">
+                    <span class="zone-progress-number">ZONA ${zoneNumber}</span>
+                    <span class="zone-progress-name">${scene.name}</span>
+                    <span class="zone-progress-status">${statusText}</span>
+                </article>
+            `;
+        }).join('');
+    }
+
+    renderRpgProfiles() {
+        const container = document.getElementById('rpg-profiles');
+        if (!container || !this.rpg) return;
+
+        container.innerHTML = this.rpg.profiles.map((profile, index) => {
+            const playerId = `P${index + 1}`;
+            const rank = RPG_CONFIG.ranks[profile.rankIndex];
+            const nextRank = RPG_CONFIG.ranks[profile.rankIndex + 1];
+            const levelXp = this.rpg.xpForNextLevel(profile.level);
+            const progressPercent = Math.min(100, (profile.xp / levelXp) * 100);
+            const missions = RPG_CONFIG.missions.map(mission => {
+                const completed = profile.completedMissions.includes(mission.id);
+                const progress = this.rpg.getMissionProgress(profile, mission);
+                return `<article class="rpg-mission${completed ? ' completed' : ''}">
+                    <div class="rpg-mission-head"><span>${mission.name}</span><span>${completed ? 'COMPLETADA' : `ACTIVA · ${progress} / ${mission.target}`}</span></div>
+                    <p>${mission.description} · Recompensa: ${mission.reward} XP</p>
+                </article>`;
+            }).join('');
+            const recentXp = profile.xpHistory.slice(-4).reverse().map(entry =>
+                `<li><span>${escapeRpgMarkup(entry.reason)}</span><strong>+${entry.amount} XP</strong></li>`
+            ).join('');
+            const masteryCards = Object.entries(RPG_CONFIG.weaponMastery.weapons).map(([weaponId, config]) => {
+                const weapon = WEAPONS[weaponId];
+                const mastery = profile.weaponMastery[weaponId];
+                const masteryRank = RPG_CONFIG.weaponMastery.ranks.reduce((highest, entry, entryIndex) =>
+                    entry.level <= mastery.level ? entryIndex : highest, 0);
+                const masteryRankData = RPG_CONFIG.weaponMastery.ranks[masteryRank];
+                const masteryRankColor = RPG_CONFIG.ranks.find(entry => entry.id === masteryRankData.id).color;
+                const nextLevelXp = weaponMasteryXpForNextLevel(mastery.level);
+                const challengeLabels = {
+                    hits: 'impactos válidos',
+                    kills: 'bajas',
+                    bossHits: 'impactos a jefes',
+                    bossKills: 'jefes derrotados'
+                };
+                return `<article class="rpg-mastery-card" style="--rpg-rank-color:${masteryRankColor}">
+                    <div class="rpg-mastery-head">
+                        <strong>${escapeRpgMarkup(weapon.name)}</strong>
+                        <span>${masteryRankData.id} · NV ${mastery.level}</span>
+                    </div>
+                    <div class="rpg-mastery-xp"><span>${mastery.level >= RPG_CONFIG.maxMasteryLevel ? 'NIVEL MÁXIMO' : `${mastery.xp} / ${nextLevelXp} XP`}</span><span>${mastery.totalXp} XP total</span></div>
+                    <div class="rpg-xp-track"><div class="rpg-xp-fill" style="width:${mastery.level >= RPG_CONFIG.maxMasteryLevel ? 100 : Math.min(100, mastery.xp / nextLevelXp * 100)}%"></div></div>
+                    <p class="rpg-mastery-challenge">${escapeRpgMarkup(config.challenge)} · ${mastery.challengeProgress} / ${config.target} ${challengeLabels[config.metric]}</p>
+                    <p class="rpg-profile-description">${mastery.challengeCompleted ? `DESAFÍO COMPLETADO · ${escapeRpgMarkup(config.reward)}` : `Recompensa: ${escapeRpgMarkup(config.reward)}`}</p>
+                    <p class="rpg-profile-description">Desbloqueos: ${mastery.unlockedRewards.map(escapeRpgMarkup).join(' · ')}</p>
+                    <p class="rpg-profile-description">Impactos ${mastery.hits} · Bajas ${mastery.kills} · Jefes ${mastery.bossHits} / ${mastery.bossKills}</p>
+                </article>`;
+            }).join('');
+            let trialContent;
+            if (!nextRank) {
+                trialContent = '<p>Rango máximo alcanzado. No hay ascensos pendientes.</p>';
+            } else if (profile.level < nextRank.level || profile.totalXp < nextRank.totalXp) {
+                trialContent = `<p>PRUEBA BLOQUEADA · Requiere nivel ${nextRank.level} y ${nextRank.totalXp} XP total. Tu perfil: nivel ${profile.level}, ${profile.totalXp} XP.</p>`;
+            } else if (profile.trial?.rank === nextRank.id && profile.trial.status === 'completed') {
+                trialContent = `<p>Prueba ${nextRank.id} completada. El ascenso se aplicará al cumplir todos los requisitos.</p>`;
+            } else {
+                const requirements = RPG_CONFIG.trials[profile.rankIndex];
+                const trial = profile.trial?.rank === nextRank.id ? profile.trial : null;
+                const objectiveText = Object.entries(requirements)
+                    .filter(([, target]) => Number.isFinite(target))
+                    .map(([key, target]) => {
+                    const labels = { kills: 'bajas', waves: 'oleadas', bosses: 'jefes', zones: 'zonas' };
+                    const progress = trial?.progress[key] || 0;
+                    return `${labels[key]} ${Math.min(progress, target)} / ${target}`;
+                }).join(' · ');
+                const status = trial?.status === 'active'
+                    ? 'EN CURSO'
+                    : trial?.status === 'failed'
+                        ? 'FALLIDA · PUEDES REINTENTAR'
+                        : 'DISPONIBLE';
+                trialContent = `<p>${requirements.rules}</p>
+                    <p>${status}: ${objectiveText}${requirements.noDamage ? ' · SIN RECIBIR DAÑO' : ''}</p>
+                    <button class="btn btn-purple" type="button" data-rpg-trial="${playerId}">
+                        ${trial?.status === 'active' ? 'PRUEBA EN CURSO' : trial?.status === 'failed' ? 'REINTENTAR PRUEBA' : `INICIAR PRUEBA ${nextRank.id}`}
+                    </button>`;
+                if (trial?.status === 'active') {
+                    trialContent = `<p>${requirements.rules}</p>
+                        <p>${status}: ${objectiveText}${requirements.noDamage ? ' · SIN RECIBIR DAÑO' : ''}</p>`;
+                }
+            }
+            return `<section class="rpg-profile-card" style="--rpg-rank-color:${rank.color}">
+                <div class="rpg-profile-head">
+                    <span>${playerId} · PERFIL INDIVIDUAL</span>
+                    <span class="rpg-rank-insignia"><span class="rpg-insignia-icon">${rank.icon}</span>RANGO ${rank.id} · ${rank.name}</span>
+                </div>
+                <div class="rpg-profile-level"><strong>NIVEL ${profile.level}</strong><span>${profile.level >= RPG_CONFIG.maxLevel ? 'NIVEL MÁXIMO' : `${profile.xp} / ${levelXp} XP`} · ${profile.totalXp} XP total</span></div>
+                <div class="rpg-xp-track"><div class="rpg-xp-fill" style="width:${progressPercent}%"></div></div>
+                <p class="rpg-profile-description">${rank.description} · Recompensa: ${rank.reward} · Ascensos registrados: ${profile.completedAscensions.length}</p>
+                <p class="rpg-profile-description">Desbloqueos: ${profile.unlockedRewards.map(escapeRpgMarkup).join(' · ')}</p>
+                <div class="rpg-xp-history"><strong>XP RECIENTE</strong><ul>${recentXp || '<li>Sin recompensas registradas todavía.</li>'}</ul></div>
+                <div class="rpg-trial"><div class="rpg-trial-title">${nextRank ? `PRUEBA DE ASCENSO ${rank.id} → ${nextRank.id}` : 'RANGO MÁXIMO'}</div>${trialContent}</div>
+                <div class="rpg-missions">${missions}</div>
+                <div class="rpg-mastery-section">
+                    <div class="rpg-trial-title">DOMINIO DE ARMAS · PROGRESO INDEPENDIENTE</div>
+                    <div class="rpg-mastery-grid">${masteryCards}</div>
+                </div>
+            </section>`;
+        }).join('');
+        container.querySelectorAll('[data-rpg-trial]').forEach(button => {
+            const profile = this.rpg.profileFor(button.dataset.rpgTrial);
+            if (profile.trial?.status === 'active') button.disabled = true;
+        });
+    }
+
+    updateRpgHud() {
+        if (!this.rpg) return;
+        this.rpg.profiles.forEach((profile, index) => {
+            const playerId = `P${index + 1}`;
+            const rank = RPG_CONFIG.ranks[profile.rankIndex];
+            const rankLabel = document.getElementById(`rpg-hud-rank-${playerId.toLowerCase()}`);
+            const levelLabel = document.getElementById(`rpg-hud-level-${playerId.toLowerCase()}`);
+            const xpBar = document.getElementById(`rpg-hud-xp-${playerId.toLowerCase()}`);
+            const xpText = document.getElementById(`rpg-hud-xp-text-${playerId.toLowerCase()}`);
+            const card = document.getElementById(`rpg-hud-${playerId.toLowerCase()}`);
+            if (!rankLabel || !levelLabel || !xpBar || !xpText || !card) return;
+            const required = this.rpg.xpForNextLevel(profile.level);
+            rankLabel.textContent = `${rank.id} · ${rank.name}`;
+            rankLabel.style.color = rank.color;
+            levelLabel.textContent = `NV ${profile.level}`;
+            xpBar.style.width = `${Math.min(100, (profile.xp / required) * 100)}%`;
+            xpBar.style.backgroundColor = rank.color;
+            xpText.textContent = profile.level >= RPG_CONFIG.maxLevel
+                ? `${playerId} · NIVEL MÁXIMO`
+                : `${playerId} · ${profile.xp} / ${required} XP`;
+            card.classList.toggle('hidden', index === 1 && this.playerCount < 2);
+        });
+    }
+
+    recordRpgEvent(player, type, details = {}) {
+        if (!player || !['P1', 'P2'].includes(player.playerId)) return 0;
+        const profileBefore = this.rpg.profileFor(player.playerId);
+        const previousLevel = profileBefore.level;
+        const previousRank = profileBefore.rankIndex;
+        const previousMissions = new Set(profileBefore.completedMissions);
+        const eventId = `${this.rpgRunId}:${++this.rpgEventSequence}:${type}:${player.playerId}`;
+        const reward = this.rpg.recordEvent(player.playerId, type, eventId, details);
+        const profileAfter = this.rpg.profileFor(player.playerId);
+        if (profileAfter.rankIndex > previousRank) {
+            const rank = RPG_CONFIG.ranks[profileAfter.rankIndex];
+            this.showRpgToast(`${player.playerId}: ASCENSO ${rank.id} · ${rank.name}`);
+        } else if (profileAfter.level > previousLevel) {
+            this.showRpgToast(`${player.playerId}: ¡NIVEL ${profileAfter.level}! +${reward} XP`);
+        } else if (profileAfter.completedMissions.some(id => !previousMissions.has(id))) {
+            const mission = RPG_CONFIG.missions.find(item =>
+                profileAfter.completedMissions.includes(item.id) && !previousMissions.has(item.id)
+            );
+            this.showRpgToast(`${player.playerId}: MISIÓN COMPLETADA · ${mission.name}`);
+        } else if (reward > 0) {
+            this.showRpgToast(`${player.playerId}: +${reward} XP`);
+        }
+        return reward;
+    }
+
+    recordWeaponRpgEvent(player, weapon, type, isBoss = false) {
+        if (!player || !['P1', 'P2'].includes(player.playerId) || !weapon?.id) return;
+        const profile = this.rpg.profileFor(player.playerId);
+        const previousLevel = profile.weaponMastery[weapon.id]?.level;
+        const previousChallenge = profile.weaponMastery[weapon.id]?.challengeCompleted;
+        const eventId = `${this.rpgRunId}:weapon:${++this.rpgWeaponEventSequence}:${type}:${player.playerId}:${weapon.id}`;
+        const result = this.rpg.recordWeaponEvent(
+            player.playerId, weapon.id, type, eventId, isBoss
+        );
+        if (!result) return;
+        if (!previousChallenge && result.challengeCompleted) {
+            const challenge = RPG_CONFIG.weaponMastery.weapons[weapon.id];
+            this.showRpgToast(`${player.playerId}: DESAFÍO ${weapon.name} COMPLETADO · ${challenge.reward}`);
+        } else if (result.level > previousLevel) {
+            this.showRpgToast(`${player.playerId}: DOMINIO ${weapon.name} · NIVEL ${result.level}`);
+        }
+    }
+
+    abandonRpgTrials() {
+        if (!this.rpg) return;
+        let abandoned = false;
+        this.rpg.profiles.forEach((profile, index) => {
+            if (profile.trial?.status === 'active') {
+                abandoned = this.rpg.failTrial(`P${index + 1}`, 'Prueba abandonada') || abandoned;
+            }
+        });
+        if (abandoned) {
+            this.showRpgToast('PRUEBA DE ASCENSO ABANDONADA · PUEDES REINTENTAR');
+            this.renderRpgProfiles();
+        }
+    }
+
+    showRpgToast(message) {
+        const toast = document.getElementById('rpg-toast');
+        if (!toast) return;
+        toast.textContent = message;
+        toast.classList.remove('hidden');
+        clearTimeout(this.rpgToastTimeout);
+        this.rpgToastTimeout = setTimeout(() => toast.classList.add('hidden'), 2300);
     }
 
     /**
@@ -1935,6 +2340,50 @@ class Game {
         });
     }
 
+    renderZoneSelect() {
+        const zoneSelect = document.getElementById('zone-select');
+        if (!zoneSelect) return;
+
+        zoneSelect.replaceChildren();
+        ZONE_SCENES.forEach((scene, index) => {
+            const zoneNumber = index + 1;
+            const completed = this.campaignProgress.completedZones.includes(zoneNumber);
+            const available = zoneNumber <= this.campaignProgress.unlockedZoneIndex;
+            const option = document.createElement('option');
+            option.value = String(zoneNumber);
+            option.disabled = !available;
+            option.textContent = completed
+                ? `✅ ZONA ${zoneNumber}: ${scene.name} — COMPLETADA`
+                : available
+                    ? `⚔️ ZONA ${zoneNumber}: ${scene.name} — DISPONIBLE`
+                    : `🔒 ZONA ${zoneNumber}: ${scene.name} — BLOQUEADA`;
+            zoneSelect.appendChild(option);
+        });
+
+        if (this.selectedZone > this.campaignProgress.unlockedZoneIndex) {
+            this.selectedZone = this.campaignProgress.unlockedZoneIndex;
+        }
+        zoneSelect.value = String(this.selectedZone);
+    }
+
+    completeCampaignZone(zoneNumber) {
+        if (!Number.isInteger(zoneNumber) || zoneNumber < 1 || zoneNumber > ZONE_SCENES.length) return;
+
+        if (!this.campaignProgress.completedZones.includes(zoneNumber)) {
+            this.campaignProgress.completedZones.push(zoneNumber);
+            this.campaignProgress.completedZones.sort((first, second) => first - second);
+        }
+        this.campaignProgress.unlockedZoneIndex = Math.max(
+            this.campaignProgress.unlockedZoneIndex,
+            Math.min(ZONE_SCENES.length, zoneNumber + 1)
+        );
+        this.renderZoneSelect();
+        this.saveProgress();
+        if (!document.getElementById('progress-overlay')?.classList.contains('hidden')) {
+            this.openProgress();
+        }
+    }
+
     setZone(zoneNumber) {
         if (!Number.isInteger(zoneNumber) || zoneNumber < 1 || zoneNumber > ZONE_SCENES.length) {
             throw new RangeError(`Zona no válida: ${zoneNumber}. Debe ser un entero entre 1 y ${ZONE_SCENES.length}.`);
@@ -1974,6 +2423,12 @@ class Game {
         this.currentZone = this.selectedZone;
         this.activeBackground = ZONE_BACKGROUND_IMAGES[this.currentZone - 1];
         this.currentWave = 1;
+        this.rpgRunCounter++;
+        this.rpgRunId = `${Date.now()}-${this.rpgRunCounter}`;
+        this.rpgEventSequence = 0;
+        this.rpgWeaponEventSequence = 0;
+        this.rpgZoneParticipants.clear();
+        this.rpgWaveParticipants.clear();
         this.setupArenaElements();
         this.enemies = [];
         this.projectiles = [];
@@ -1981,6 +2436,7 @@ class Game {
         this.explosions = [];
         this.floatingTexts = [];
         this.combo = 0;
+        this.comboXpMilestones.clear();
         this.gameTime = 0;
         this.bossActive = false;
 
@@ -1992,6 +2448,7 @@ class Game {
         document.getElementById('hud').classList.remove('hidden');
         this.state = 'PLAYING';
         this.previousState = 'PLAYING';
+        this.updateRpgHud();
 
         playNormalBattleMusic(this.currentZone);
     }
@@ -2003,6 +2460,7 @@ class Game {
         if (this.state === 'PLAYING') {
             this.state = 'PAUSED';
             this.previousState = 'PAUSED';
+            this.input.clearActions();
             musicManager.pause();
             this.showOverlay('pause-overlay', false);
         }
@@ -2013,7 +2471,7 @@ class Game {
      */
     resumeGame() {
         if (this.state === 'PAUSED') {
-            this.input.clearAttacks();
+            this.input.clearActions();
             this.showOverlay(null);
             this.state = 'PLAYING';
             this.previousState = 'PLAYING';
@@ -2037,6 +2495,7 @@ class Game {
         this.enemySpawnTimer = 0;
         this.projectiles = [];
         this.bossActive = false;
+        this.rpgWaveParticipants.clear();
 
         // Jefes de zona resueltos por el sistema de jefe existente.
         const bossConfigs = [
@@ -2327,14 +2786,23 @@ class Game {
     damagePlayer(amount = 5, target = this.player, ignoreInvulnerability = false) {
         const playerTarget = target || this.player;
         if (!this.isPlayerCombatReady(playerTarget) ||
-            (!ignoreInvulnerability &&
-                (playerTarget.invulnerableTimer > 0 || this.teamInvulnerableTimer > 0)) ||
             this.state !== 'PLAYING' ||
             !Number.isFinite(amount) ||
             amount <= 0) return;
+        if (!ignoreInvulnerability &&
+            (playerTarget.invulnerableTimer > 0 || this.teamInvulnerableTimer > 0)) {
+            if (playerTarget.dashTimer > 0 && !playerTarget.rpgDashRewarded) {
+                playerTarget.rpgDashRewarded = true;
+                this.recordRpgEvent(playerTarget, 'dodge');
+            }
+            return;
+        }
 
         const actualDamage = Math.min(playerTarget.hp, amount);
         playerTarget.hp = Math.max(0, playerTarget.hp - actualDamage);
+        if (actualDamage > 0 && this.rpg.recordTrialDamage(playerTarget.playerId)) {
+            this.showRpgToast(`${playerTarget.playerId}: PRUEBA DE ASCENSO FALLIDA · RECIBISTE DAÑO`);
+        }
         const energyLevel = playerTarget.upgrades?.energyLevel || 0;
         playerTarget.energy = Math.min(
             playerTarget.maxEnergy,
@@ -2358,6 +2826,9 @@ class Game {
         this.updateHUD();
 
         if (playerTarget.hp <= 0) {
+            if (this.rpg.failTrial(playerTarget.playerId)) {
+                this.showRpgToast(`${playerTarget.playerId}: PRUEBA DE ASCENSO FALLIDA · PUEDES REINTENTAR`);
+            }
             playerTarget.hp = 0;
             playerTarget.setState('ghost');
             playerTarget.isAttacking = false;
@@ -2504,7 +2975,11 @@ class Game {
         const appliedDamage = damage * incomingDamageMultiplier * (enemy.type === 'boss'
             ? (BOSS_WEAPON_DAMAGE_MULTIPLIERS[weapon.id] || 1)
             : 1);
+        if (!Number.isFinite(appliedDamage) || appliedDamage <= 0) return;
         enemy.hp -= appliedDamage;
+        this.recordWeaponRpgEvent(player, weapon, 'hit', enemy.type === 'boss');
+        this.rpgZoneParticipants.add(player.playerId);
+        this.rpgWaveParticipants.add(player.playerId);
         if (grantEnergy) {
             const energyLevel = player.upgrades?.energyLevel || 0;
             player.energy = Math.min(
@@ -2515,6 +2990,14 @@ class Game {
         this.updateHUD();
         this.combo++;
         this.comboTimer = 90;
+        if (this.combo >= 5 &&
+            this.combo % 5 === 0 &&
+            this.comboXpMilestones.size < RPG_CONFIG.xp.maxComboMilestonesPerChain &&
+            !this.comboXpMilestones.has(this.combo)) {
+            this.comboXpMilestones.add(this.combo);
+            this.recordRpgEvent(player, 'combo');
+            this.recordWeaponRpgEvent(player, weapon, 'combo', enemy.type === 'boss');
+        }
         if (this.combo === 8) this.syncMusicWithGameState();
         sound.playHit();
         player.triggerCombatFlash();
@@ -2553,7 +3036,7 @@ class Game {
         }
 
         if (enemy.hp > 0 || enemy.isDead) return;
-        this.finishEnemyDeath(enemy, player);
+        this.finishEnemyDeath(enemy, player, weapon.id);
     }
 
     applyWeaponElementalEffect(player, enemy, weapon, allowChain = true) {
@@ -2649,9 +3132,20 @@ class Game {
         });
     }
 
-    finishEnemyDeath(enemy, player) {
+    finishEnemyDeath(enemy, player, weaponId = null) {
         if (enemy.isDead) return;
         enemy.isDead = true;
+        if (player) {
+            this.rpgZoneParticipants.add(player.playerId);
+            this.rpgWaveParticipants.add(player.playerId);
+            this.recordRpgEvent(player, 'kill', {
+                boss: enemy.type === 'boss',
+                maxHp: enemy.maxHp
+            });
+            if (weaponId && WEAPONS[weaponId]) {
+                this.recordWeaponRpgEvent(player, WEAPONS[weaponId], 'kill', enemy.type === 'boss');
+            }
+        }
         this.totalKills++;
         for (let index = 0; index < 18; index++) {
             this.particles.push(new Particle(
@@ -2663,6 +3157,9 @@ class Game {
 
         if (enemy.type === 'boss') {
             this.totalBosses++;
+            if (this.bossActive && !this.isSurvivalMode) {
+                this.completeCampaignZone(this.currentZone);
+            }
             this.addCoins(100, enemy.x, enemy.y, player);
             this.healPlayer(50, player.x, player.y, player);
             this.triggerBossDeathExplosion(enemy);
@@ -3032,7 +3529,10 @@ class Game {
      * Pantalla de Victoria Absoluta
      */
     triggerVictory() {
+        if (this.state === 'VICTORY') return;
         this.state = 'VICTORY';
+        this.totalVictories++;
+        this.saveProgress();
         musicManager.stop();
         document.getElementById('hud').classList.add('hidden');
 
@@ -3131,7 +3631,7 @@ class Game {
                         12
                     ));
                     if (target.hp <= 0) {
-                        this.finishEnemyDeath(target, target.lastStatusSource || this.players[0]);
+                        this.finishEnemyDeath(target, target.lastStatusSource || null);
                     }
                 },
                 (x, y, radius, damage) => {
@@ -3179,6 +3679,12 @@ class Game {
         // Comprobación de final de oleada
         if (allDead && this.enemies.length > 0 && this.pendingEnemySpawns.length === 0) {
             if (this.bossActive) {
+                const zoneParticipants = [...this.rpgZoneParticipants];
+                zoneParticipants.forEach(playerId => {
+                    const player = this.players.find(candidate => candidate.playerId === playerId);
+                    if (player) this.recordRpgEvent(player, 'zone', { zone: this.currentZone });
+                });
+                this.rpgZoneParticipants.clear();
                 if (this.currentZone < ZONE_SCENES.length) {
                     this.bossActive = false;
                     this.setZone(this.currentZone + 1);
@@ -3188,14 +3694,24 @@ class Game {
                 } else {
                     this.triggerVictory();
                 }
-            } else if (this.isSurvivalMode) {
-                this.survivalWavesCleared++;
-                this.getAlivePlayers().forEach(player => {
-                    this.addCoins(25, player.x, player.y, player);
-                });
-                this.currentWave++;
-                this.startWave();
             } else {
+                [...this.rpgWaveParticipants].forEach(playerId => {
+                    const player = this.players.find(candidate => candidate.playerId === playerId);
+                    if (player) this.recordRpgEvent(player, 'wave', { wave: this.currentWave });
+                });
+                if (this.playerCount === 2 &&
+                    this.rpgWaveParticipants.has('P1') &&
+                    this.rpgWaveParticipants.has('P2')) {
+                    this.players.forEach(player => {
+                        this.recordRpgEvent(player, 'coopWave', { wave: this.currentWave });
+                    });
+                }
+                if (this.isSurvivalMode) {
+                    this.survivalWavesCleared++;
+                    this.getAlivePlayers().forEach(player => {
+                        this.addCoins(25, player.x, player.y, player);
+                    });
+                }
                 this.currentWave++;
                 this.startWave();
             }
@@ -3209,6 +3725,7 @@ class Game {
             this.comboTimer--;
             if (this.comboTimer <= 0) {
                 this.combo = 0;
+                this.comboXpMilestones.clear();
                 this.updateHUD();
                 this.syncMusicWithGameState();
             }

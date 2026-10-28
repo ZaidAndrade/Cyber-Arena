@@ -47,7 +47,7 @@ class MusicManager {
         this.unlocked = false;
         this.paused = false;
         this.muted = false;
-        this.volume = 0.55;
+        this.volume = typeof sound !== 'undefined' ? sound.getEffectiveMusicVolume() : 0.55;
         this.playToken = 0;
         this.unlockHandler = () => this.unlock();
 
@@ -55,6 +55,20 @@ class MusicManager {
         document.addEventListener('pointerdown', this.unlockHandler);
         document.addEventListener('keydown', this.unlockHandler);
         document.addEventListener('touchstart', this.unlockHandler, { passive: true });
+    }
+
+    syncWithAudioSettings() {
+        this.volume = typeof sound !== 'undefined' ? sound.getEffectiveMusicVolume() : this.volume;
+        this.muted = typeof sound !== 'undefined' ? !sound.musicEnabled || !sound.enabled : this.muted;
+        if (this.audio) {
+            this.audio.volume = this.getCurrentVolume();
+            this.audio.muted = this.muted;
+        }
+    }
+
+    getCurrentVolume() {
+        const effective = typeof sound !== 'undefined' ? sound.getEffectiveMusicVolume() : this.volume;
+        return Number.isFinite(effective) ? Math.min(1, Math.max(0, effective)) : 0;
     }
 
     playMenuMusic() {
@@ -129,7 +143,8 @@ class MusicManager {
         this.audio.currentTime = 0;
         this.audio.src = track.src;
         this.audio.loop = this.scene === 'menu' || this.scene === 'customize' || this.scene === 'boss';
-        this.audio.volume = this.muted ? 0 : this.volume;
+        this.audio.muted = typeof sound !== 'undefined' ? (!sound.enabled || !sound.musicEnabled) : this.muted;
+        this.audio.volume = this.getCurrentVolume();
         this.audio.load();
 
         const musicBadge = document.getElementById('hud-music');
@@ -192,16 +207,29 @@ class MusicManager {
     }
 
     setVolume(volume) {
-        if (!Number.isFinite(volume) || volume < 0 || volume > 1) {
+        const normalized = Number(volume);
+        if (!Number.isFinite(normalized) || normalized < 0 || normalized > 1) {
             throw new RangeError('El volumen debe ser un número entre 0 y 1.');
         }
-        this.volume = volume;
-        this.audio.volume = this.muted ? 0 : volume;
+        if (typeof sound !== 'undefined') {
+            sound.setMusicVolume(normalized * 100);
+            this.volume = normalized;
+        } else {
+            this.volume = normalized;
+        }
+        this.audio.volume = this.getCurrentVolume();
+        this.audio.muted = typeof sound !== 'undefined' ? (!sound.enabled || !sound.musicEnabled) : this.muted;
     }
 
     setMuted(muted) {
-        this.muted = Boolean(muted);
-        this.audio.volume = this.muted ? 0 : this.volume;
+        if (typeof sound !== 'undefined') {
+            sound.setMusicEnabled(!Boolean(muted));
+            this.muted = !sound.musicEnabled;
+        } else {
+            this.muted = Boolean(muted);
+        }
+        this.audio.volume = this.getCurrentVolume();
+        this.audio.muted = this.muted;
         return this.muted;
     }
 

@@ -2,20 +2,21 @@
  * Acciones de entrada compartidas por teclado, táctil y mandos.
  */
 class InputManager {
-    constructor(onPause = () => {}, onGamepadChange = () => {}) {
+    constructor(onPause = () => {}, onGamepadChange = () => {}, onAudioSettings = () => {}) {
         this.onPause = onPause;
         this.onGamepadChange = onGamepadChange;
+        this.onAudioSettings = onAudioSettings;
+        this.gameplayInputBlocked = false;
         this.bindings = {
             p1: {
                 KeyA: ['moveLeft'],
                 KeyD: ['moveRight'],
                 KeyW: ['jump'],
                 KeyS: ['crouch'],
-                KeyF: ['attack'],
                 Space: ['jump'],
-                KeyJ: ['legacyLight'],
-                KeyK: ['legacyHeavy'],
-                KeyL: ['legacySpecial'],
+                KeyJ: ['attackLight'],
+                KeyK: ['attackHeavy'],
+                KeyL: ['attackSpecial'],
                 KeyQ: ['weaponNext'],
                 ShiftLeft: ['dash']
             },
@@ -25,7 +26,18 @@ class InputManager {
                 ArrowUp: ['jump'],
                 ArrowDown: ['crouch'],
                 Enter: ['attack'],
-                KeyO: ['legacySpecial'],
+                NumpadEnter: ['attack'],
+                Digit1: ['attackLight'],
+                Numpad1: ['attackLight'],
+                Digit2: ['attackHeavy'],
+                Numpad2: ['attackHeavy'],
+                Digit3: ['attackSpecial'],
+                Numpad3: ['attackSpecial'],
+                Digit4: ['weaponNext'],
+                Numpad4: ['weaponNext'],
+                Digit0: ['attackSpecial'],
+                Numpad0: ['attackSpecial'],
+                KeyO: ['attackSpecial'],
                 ShiftRight: ['dash']
             }
         };
@@ -41,6 +53,7 @@ class InputManager {
         this.gamepadAssignments = new Map();
         this.gamepadAttackButtons = new Map();
         this.gamepadWeaponButtons = new Map();
+        this.gamepadAudioButtons = new Map();
         this.playerCount = 0;
 
         this.handleKeyDown = event => this.onKeyDown(event);
@@ -53,6 +66,7 @@ class InputManager {
     }
 
     onKeyDown(event) {
+        if (this.gameplayInputBlocked) return;
         const isDashKey = event.code === 'ShiftLeft' || event.code === 'ShiftRight';
         if (event.target instanceof HTMLSelectElement && !isDashKey) return;
         if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(event.code)) {
@@ -81,12 +95,12 @@ class InputManager {
                     if (!event.repeat) this.dashQueues[playerId]++;
                     continue;
                 }
-                if (action === 'legacyLight' || action === 'legacyHeavy' || action === 'legacySpecial') {
+                if (action === 'attackLight' || action === 'attackHeavy' || action === 'attackSpecial') {
                     if (!event.repeat) {
                         const type = {
-                            legacyLight: 'light',
-                            legacyHeavy: 'heavy',
-                            legacySpecial: 'special'
+                            attackLight: 'light',
+                            attackHeavy: 'heavy',
+                            attackSpecial: 'special'
                         }[action];
                         this.attackQueues[playerId].push(type);
                     }
@@ -145,6 +159,7 @@ class InputManager {
             this.gamepadAssignments.delete(index);
             this.gamepadAttackButtons.delete(index);
             this.gamepadWeaponButtons.delete(index);
+            this.gamepadAudioButtons.delete(index);
             assignmentsChanged = true;
         }
 
@@ -170,6 +185,12 @@ class InputManager {
             const horizontal = pad.axes[0] || 0;
             const vertical = pad.axes[1] || 0;
             const buttonPressed = index => Boolean(pad.buttons[index]?.pressed);
+            const audioButtonPressed = buttonPressed(8);
+            const audioButtonActivated = audioButtonPressed && !this.gamepadAudioButtons.get(pad.index);
+            if (audioButtonActivated) {
+                this.onAudioSettings();
+            }
+            this.gamepadAudioButtons.set(pad.index, audioButtonPressed);
             const pressedAttackButtons = new Set();
             const pressedWeaponButtons = new Set();
             [
@@ -179,18 +200,21 @@ class InputManager {
             ].forEach(([buttonIndex, attackType]) => {
                 if (!buttonPressed(buttonIndex)) return;
                 pressedAttackButtons.add(buttonIndex);
-                if (!this.gamepadAttackButtons.get(pad.index)?.has(buttonIndex)) {
+                if (!this.gameplayInputBlocked && !audioButtonActivated &&
+                    !this.gamepadAttackButtons.get(pad.index)?.has(buttonIndex)) {
                     this.attackQueues[playerId].push(attackType);
                 }
             });
             this.gamepadAttackButtons.set(pad.index, pressedAttackButtons);
             if (buttonPressed(4)) {
                 pressedWeaponButtons.add(4);
-                if (!this.gamepadWeaponButtons.get(pad.index)?.has(4)) {
+                if (!this.gameplayInputBlocked && !audioButtonActivated &&
+                    !this.gamepadWeaponButtons.get(pad.index)?.has(4)) {
                     this.weaponQueues[playerId]++;
                 }
             }
             this.gamepadWeaponButtons.set(pad.index, pressedWeaponButtons);
+            if (this.gameplayInputBlocked || audioButtonActivated) continue;
 
             if (horizontal < -0.35 || buttonPressed(14)) actions.add('moveLeft');
             if (horizontal > 0.35 || buttonPressed(15)) actions.add('moveRight');
@@ -325,6 +349,11 @@ class InputManager {
             playerSources.gamepad.clear();
         });
         this.clearAttacks();
+    }
+
+    setGameplayInputBlocked(blocked) {
+        this.gameplayInputBlocked = Boolean(blocked);
+        if (this.gameplayInputBlocked) this.clearActions();
     }
 
     destroy() {

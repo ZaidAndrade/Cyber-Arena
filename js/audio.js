@@ -41,10 +41,25 @@ const MUSIC_TRACKS = {
     }
 };
 
+const AUDIO_STORAGE_KEY = 'neonStickAudioPrefs';
+
+const DEFAULT_AUDIO_SETTINGS = Object.freeze({
+    generalVolume: 100,
+    musicVolume: 55,
+    sfxVolume: 70,
+    musicEnabled: true,
+    sfxEnabled: true
+});
+
 class SoundFX {
     constructor() {
         this.enabled = true;
         this.musicEnabled = true;
+        this.sfxEnabled = true;
+        this.generalVolume = DEFAULT_AUDIO_SETTINGS.generalVolume;
+        this.lastGeneralVolume = DEFAULT_AUDIO_SETTINGS.generalVolume;
+        this.musicVolume = DEFAULT_AUDIO_SETTINGS.musicVolume;
+        this.sfxVolume = DEFAULT_AUDIO_SETTINGS.sfxVolume;
         this.ctx = null;
         this.masterGain = null;
         this.sfxGain = null;
@@ -65,8 +80,9 @@ class SoundFX {
         this.musicCueReturnTrackKey = null;
         this.musicFadeTimer = null;
         this.musicTransitionToken = 0;
-        this.musicVolume = 0.55;
         this.musicCueDuration = 9000;
+
+        this.loadPreferences();
 
         // Patrón de bajo Cyberpunk (Frecuencias en Hz)
         // Secuencia en C Menor / Eb / Bb / G:
@@ -86,6 +102,186 @@ class SoundFX {
         ];
     }
 
+    normalizePercent(value, fallback = 100) {
+        const numeric = Number(value);
+        if (!Number.isFinite(numeric)) return fallback;
+        return Math.min(100, Math.max(0, Math.round(numeric)));
+    }
+
+    getEffectiveMusicVolume() {
+        if (!this.enabled || !this.musicEnabled) return 0;
+        return (this.generalVolume / 100) * (this.musicVolume / 100);
+    }
+
+    getEffectiveSfxVolume() {
+        if (!this.sfxEnabled) return 0;
+        return this.sfxVolume / 100;
+    }
+
+    getMusicCategoryVolume() {
+        return this.musicEnabled ? this.musicVolume / 100 : 0;
+    }
+
+    persistPreferences() {
+        if (typeof localStorage === 'undefined') return;
+        const settings = {
+            generalVolume: this.generalVolume,
+            musicVolume: this.musicVolume,
+            sfxVolume: this.sfxVolume,
+            musicEnabled: this.musicEnabled,
+            sfxEnabled: this.sfxEnabled
+        };
+        localStorage.setItem(AUDIO_STORAGE_KEY, JSON.stringify(settings));
+    }
+
+    loadPreferences() {
+        if (typeof localStorage === 'undefined') return;
+        try {
+            const saved = JSON.parse(localStorage.getItem(AUDIO_STORAGE_KEY) || '{}');
+            this.generalVolume = this.normalizePercent(saved.generalVolume, DEFAULT_AUDIO_SETTINGS.generalVolume);
+            this.musicVolume = this.normalizePercent(saved.musicVolume, DEFAULT_AUDIO_SETTINGS.musicVolume);
+            this.sfxVolume = this.normalizePercent(saved.sfxVolume, DEFAULT_AUDIO_SETTINGS.sfxVolume);
+            this.musicEnabled = saved.musicEnabled !== false;
+            this.sfxEnabled = saved.sfxEnabled !== false;
+        } catch (error) {
+            console.warn('No se pudieron cargar las preferencias de audio.', error);
+            this.generalVolume = DEFAULT_AUDIO_SETTINGS.generalVolume;
+            this.musicVolume = DEFAULT_AUDIO_SETTINGS.musicVolume;
+            this.sfxVolume = DEFAULT_AUDIO_SETTINGS.sfxVolume;
+            this.musicEnabled = DEFAULT_AUDIO_SETTINGS.musicEnabled;
+            this.sfxEnabled = DEFAULT_AUDIO_SETTINGS.sfxEnabled;
+        }
+        this.lastGeneralVolume = this.generalVolume > 0 ? this.generalVolume : DEFAULT_AUDIO_SETTINGS.generalVolume;
+        this.enabled = this.generalVolume > 0;
+    }
+
+    applyVolumeTargets() {
+        if (this.ctx && this.masterGain && this.sfxGain && this.musicGain) {
+            const currentTime = this.ctx.currentTime;
+            this.masterGain.gain.setValueAtTime(this.enabled ? this.generalVolume / 100 : 0, currentTime);
+            this.musicGain.gain.setValueAtTime(this.getMusicCategoryVolume(), currentTime);
+            this.sfxGain.gain.setValueAtTime(this.getEffectiveSfxVolume(), currentTime);
+        }
+
+        const audioElement = document.getElementById('bg-music');
+        if (typeof musicManager !== 'undefined') {
+            musicManager.syncWithAudioSettings();
+        } else if (audioElement) {
+            audioElement.muted = !this.enabled || !this.musicEnabled;
+            audioElement.volume = this.getEffectiveMusicVolume();
+        }
+    }
+
+    setGeneralVolume(value) {
+        this.generalVolume = this.normalizePercent(value, this.generalVolume);
+        this.enabled = this.generalVolume > 0;
+        if (this.generalVolume > 0) this.lastGeneralVolume = this.generalVolume;
+        this.applyVolumeTargets();
+        this.persistPreferences();
+        return this.generalVolume;
+    }
+
+    setMusicVolume(value) {
+        this.musicVolume = this.normalizePercent(value, this.musicVolume);
+        this.applyVolumeTargets();
+        this.persistPreferences();
+        return this.musicVolume;
+    }
+
+    setSfxVolume(value) {
+        this.sfxVolume = this.normalizePercent(value, this.sfxVolume);
+        this.applyVolumeTargets();
+        this.persistPreferences();
+        return this.sfxVolume;
+    }
+
+    setMusicEnabled(enabled) {
+        this.musicEnabled = Boolean(enabled);
+        this.applyVolumeTargets();
+        this.persistPreferences();
+        return this.musicEnabled;
+    }
+
+    setSfxEnabled(enabled) {
+        this.sfxEnabled = Boolean(enabled);
+        this.applyVolumeTargets();
+        this.persistPreferences();
+        return this.sfxEnabled;
+    }
+
+    syncAudioControls() {
+        const generalSlider = document.getElementById('audio-general-volume');
+        const musicSlider = document.getElementById('audio-music-volume');
+        const sfxSlider = document.getElementById('audio-sfx-volume');
+        const musicToggle = document.getElementById('audio-music-enabled');
+        const sfxToggle = document.getElementById('audio-sfx-enabled');
+        const generalValue = document.getElementById('audio-general-value');
+        const musicValue = document.getElementById('audio-music-value');
+        const sfxValue = document.getElementById('audio-sfx-value');
+
+        if (generalSlider) generalSlider.value = this.generalVolume;
+        if (musicSlider) musicSlider.value = this.musicVolume;
+        if (sfxSlider) sfxSlider.value = this.sfxVolume;
+        if (musicToggle) musicToggle.checked = this.musicEnabled;
+        if (sfxToggle) sfxToggle.checked = this.sfxEnabled;
+        if (generalValue) generalValue.textContent = `${this.generalVolume}%`;
+        if (musicValue) musicValue.textContent = `${this.musicVolume}%`;
+        if (sfxValue) sfxValue.textContent = `${this.sfxVolume}%`;
+    }
+
+    bindAudioSettingsPanel() {
+        const generalSlider = document.getElementById('audio-general-volume');
+        const musicSlider = document.getElementById('audio-music-volume');
+        const sfxSlider = document.getElementById('audio-sfx-volume');
+        const musicToggle = document.getElementById('audio-music-enabled');
+        const sfxToggle = document.getElementById('audio-sfx-enabled');
+        const saveButton = document.getElementById('btn-save-audio');
+        const resetButton = document.getElementById('btn-reset-audio');
+        if (!generalSlider || !musicSlider || !sfxSlider || !musicToggle || !sfxToggle) {
+            return false;
+        }
+
+        const updateFromInputs = () => {
+            this.setGeneralVolume(generalSlider.value);
+            this.setMusicVolume(musicSlider.value);
+            this.setSfxVolume(sfxSlider.value);
+            this.setMusicEnabled(musicToggle.checked);
+            this.setSfxEnabled(sfxToggle.checked);
+            this.syncAudioControls();
+        };
+
+        generalSlider.oninput = updateFromInputs;
+        musicSlider.oninput = updateFromInputs;
+        sfxSlider.oninput = updateFromInputs;
+        musicToggle.onchange = updateFromInputs;
+        sfxToggle.onchange = updateFromInputs;
+
+        if (saveButton) {
+            saveButton.onclick = () => {
+                this.persistPreferences();
+                this.syncAudioControls();
+            };
+        }
+
+        if (resetButton) {
+            resetButton.onclick = () => {
+                this.generalVolume = DEFAULT_AUDIO_SETTINGS.generalVolume;
+                this.musicVolume = DEFAULT_AUDIO_SETTINGS.musicVolume;
+                this.sfxVolume = DEFAULT_AUDIO_SETTINGS.sfxVolume;
+                this.musicEnabled = DEFAULT_AUDIO_SETTINGS.musicEnabled;
+                this.sfxEnabled = DEFAULT_AUDIO_SETTINGS.sfxEnabled;
+                this.enabled = this.generalVolume > 0;
+                this.lastGeneralVolume = this.generalVolume;
+                this.persistPreferences();
+                this.syncAudioControls();
+                this.applyVolumeTargets();
+            };
+        }
+
+        this.syncAudioControls();
+        return true;
+    }
+
     /**
      * Inicializa el AudioContext tras la primera interacción del usuario.
      */
@@ -97,15 +293,15 @@ class SoundFX {
 
                 // Nodos de ganancia organizados
                 this.masterGain = this.ctx.createGain();
-                this.masterGain.gain.setValueAtTime(0.8, this.ctx.currentTime);
+                this.masterGain.gain.setValueAtTime(this.enabled ? this.generalVolume / 100 : 0, this.ctx.currentTime);
                 this.masterGain.connect(this.ctx.destination);
 
                 this.sfxGain = this.ctx.createGain();
-                this.sfxGain.gain.setValueAtTime(0.7, this.ctx.currentTime);
+                this.sfxGain.gain.setValueAtTime(this.getEffectiveSfxVolume(), this.ctx.currentTime);
                 this.sfxGain.connect(this.masterGain);
 
                 this.musicGain = this.ctx.createGain();
-                this.musicGain.gain.setValueAtTime(0.28, this.ctx.currentTime);
+                this.musicGain.gain.setValueAtTime(this.getMusicCategoryVolume(), this.ctx.currentTime);
                 this.musicGain.connect(this.masterGain);
             }
         }
@@ -113,16 +309,23 @@ class SoundFX {
         if (this.ctx && this.ctx.state === 'suspended') {
             this.ctx.resume();
         }
+        this.applyVolumeTargets();
     }
 
     /**
      * Alterna el estado del sonido general y de la música
      */
     toggleSound() {
-        this.enabled = !this.enabled;
-        if (this.masterGain && this.ctx) {
-            this.masterGain.gain.setValueAtTime(this.enabled ? 0.8 : 0.0, this.ctx.currentTime);
+        if (this.enabled) {
+            this.lastGeneralVolume = this.generalVolume > 0 ? this.generalVolume : this.lastGeneralVolume;
+            this.generalVolume = 0;
+            this.enabled = false;
+        } else {
+            this.generalVolume = this.lastGeneralVolume > 0 ? this.lastGeneralVolume : DEFAULT_AUDIO_SETTINGS.generalVolume;
+            this.enabled = true;
         }
+        this.applyVolumeTargets();
+        this.persistPreferences();
         return this.enabled;
     }
 
@@ -131,7 +334,7 @@ class SoundFX {
     // ==========================================================================
 
     playHit() {
-        if (!this.enabled || !this.ctx) return;
+        if (!this.enabled || !this.sfxEnabled || !this.ctx) return;
         const osc = this.ctx.createOscillator();
         const gain = this.ctx.createGain();
         osc.type = 'triangle';
@@ -146,7 +349,7 @@ class SoundFX {
     }
 
     playSlash() {
-        if (!this.enabled || !this.ctx) return;
+        if (!this.enabled || !this.sfxEnabled || !this.ctx) return;
         const osc = this.ctx.createOscillator();
         const gain = this.ctx.createGain();
         osc.type = 'sawtooth';
@@ -161,7 +364,7 @@ class SoundFX {
     }
 
     playHeavySlash() {
-        if (!this.enabled || !this.ctx) return;
+        if (!this.enabled || !this.sfxEnabled || !this.ctx) return;
         const osc = this.ctx.createOscillator();
         const gain = this.ctx.createGain();
         osc.type = 'sawtooth';
@@ -176,7 +379,7 @@ class SoundFX {
     }
 
     playJump() {
-        if (!this.enabled || !this.ctx) return;
+        if (!this.enabled || !this.sfxEnabled || !this.ctx) return;
         const osc = this.ctx.createOscillator();
         const gain = this.ctx.createGain();
         osc.type = 'sine';
@@ -191,7 +394,7 @@ class SoundFX {
     }
 
     playDamage() {
-        if (!this.enabled || !this.ctx) return;
+        if (!this.enabled || !this.sfxEnabled || !this.ctx) return;
         const osc = this.ctx.createOscillator();
         const gain = this.ctx.createGain();
         osc.type = 'sawtooth';
@@ -206,7 +409,7 @@ class SoundFX {
     }
 
     playCoin() {
-        if (!this.enabled || !this.ctx) return;
+        if (!this.enabled || !this.sfxEnabled || !this.ctx) return;
         const osc = this.ctx.createOscillator();
         const gain = this.ctx.createGain();
         osc.type = 'sine';
@@ -221,7 +424,7 @@ class SoundFX {
     }
 
     playHeal() {
-        if (!this.enabled || !this.ctx) return;
+        if (!this.enabled || !this.sfxEnabled || !this.ctx) return;
         const osc = this.ctx.createOscillator();
         const gain = this.ctx.createGain();
         osc.type = 'sine';
@@ -236,7 +439,7 @@ class SoundFX {
     }
 
     playSpecial() {
-        if (!this.enabled || !this.ctx) return;
+        if (!this.enabled || !this.sfxEnabled || !this.ctx) return;
         // Efecto láser expansivo
         const osc = this.ctx.createOscillator();
         const gain = this.ctx.createGain();
@@ -253,7 +456,7 @@ class SoundFX {
     }
 
     playBossAlert() {
-        if (!this.enabled || !this.ctx) return;
+        if (!this.enabled || !this.sfxEnabled || !this.ctx) return;
         const osc = this.ctx.createOscillator();
         const gain = this.ctx.createGain();
         osc.type = 'sawtooth';
@@ -270,7 +473,7 @@ class SoundFX {
     }
 
     playBossCharge() {
-        if (!this.enabled || !this.ctx) return;
+        if (!this.enabled || !this.sfxEnabled || !this.ctx) return;
         const osc = this.ctx.createOscillator();
         const gain = this.ctx.createGain();
         osc.type = 'sawtooth';
@@ -285,7 +488,7 @@ class SoundFX {
     }
 
     playBossSlam() {
-        if (!this.enabled || !this.ctx) return;
+        if (!this.enabled || !this.sfxEnabled || !this.ctx) return;
         const osc = this.ctx.createOscillator();
         const gain = this.ctx.createGain();
         osc.type = 'triangle';
@@ -352,7 +555,7 @@ class SoundFX {
         const token = ++this.musicTransitionToken;
         const sameTrack = this.currentTrackKey === trackKey && audioElement.src === trackUrl;
         audioElement.loop = loop;
-        audioElement.muted = !this.enabled;
+        audioElement.muted = !this.enabled || !this.musicEnabled;
         audioElement.onended = () => {
             if (this.musicCueKey) this.endMusicCue();
         };
@@ -394,7 +597,7 @@ class SoundFX {
                 playPromise.then(() => {
                     if (token !== this.musicTransitionToken) return;
                     this.bgmPlaying = true;
-                    this.fadeMusicTo(this.musicVolume, 450, token);
+                    this.fadeMusicTo(this.getEffectiveMusicVolume(), 450, token);
                     if (this.musicCueKey === trackKey) this.scheduleMusicCueEnd();
                 }).catch(error => {
                     if (token !== this.musicTransitionToken) return;
@@ -405,7 +608,7 @@ class SoundFX {
                 });
             } else {
                 this.bgmPlaying = true;
-                this.fadeMusicTo(this.musicVolume, 450, token);
+                this.fadeMusicTo(this.getEffectiveMusicVolume(), 450, token);
                 if (this.musicCueKey === trackKey) this.scheduleMusicCueEnd();
             }
         };
@@ -603,7 +806,7 @@ class SoundFX {
         const audioElement = document.getElementById('bg-music');
         if (audioElement) {
             audioElement.currentTime = 0;
-            audioElement.volume = this.musicVolume;
+            audioElement.volume = this.getEffectiveMusicVolume();
         }
     }
 }

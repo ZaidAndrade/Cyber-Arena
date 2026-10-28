@@ -742,6 +742,7 @@ class Player {
             this.facingRight = this.dashDirection > 0;
             this.dashTimer = PLAYER_DASH_DURATION;
             this.dashCooldown = 72;
+            this.rpgDashRewarded = false;
             this.invulnerableTimer = Math.max(this.invulnerableTimer, 24);
             this.dashFrame = 0;
             this.dashReadyFlash = 0;
