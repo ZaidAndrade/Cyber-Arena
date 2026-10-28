@@ -9,7 +9,7 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="theme-color" content="#03030a">
     <title>NEON STICK: CYBER ARENA</title>
-    <meta name="description" content="Juego de acción y combate Cyberpunk Stickman en 2D con efectos neón, múltiples armas y combates contra jefes en 15 zonas adaptado para PC y Celular.">
+    <meta name="description" content="Juego de acción y combate Cyberpunk Stickman en 2D con efectos neón, múltiples armas y combates contra jefes en 21 zonas adaptado para PC y Celular.">
     <link rel="stylesheet" href="css/style.css">
 </head>
 
@@ -73,6 +73,18 @@
                     <div id="hud-zone" class="zone-badge">CYBER CITY</div>
                     <div id="hud-wave" class="wave-badge">OLEADA 1 / 5</div>
                     <div id="hud-music" class="hud-music-badge">🎵 MONTAGEM ALQUIMIA</div>
+                    <div class="rpg-hud">
+                        <div id="rpg-hud-p1" class="rpg-hud-player">
+                            <div class="rpg-hud-label"><span id="rpg-hud-rank-p1">F · INICIADO</span><span id="rpg-hud-level-p1">NV 1</span></div>
+                            <div class="rpg-hud-track"><div id="rpg-hud-xp-p1" class="rpg-hud-fill"></div></div>
+                            <div id="rpg-hud-xp-text-p1" class="rpg-hud-xp-text">P1 · 0 / 135 XP</div>
+                        </div>
+                        <div id="rpg-hud-p2" class="rpg-hud-player hidden">
+                            <div class="rpg-hud-label"><span id="rpg-hud-rank-p2">F · INICIADO</span><span id="rpg-hud-level-p2">NV 1</span></div>
+                            <div class="rpg-hud-track"><div id="rpg-hud-xp-p2" class="rpg-hud-fill"></div></div>
+                            <div id="rpg-hud-xp-text-p2" class="rpg-hud-xp-text">P2 · 0 / 135 XP</div>
+                        </div>
+                    </div>
                 </div>
 
                 <div class="hud-right">
@@ -81,6 +93,7 @@
                     <div class="hud-buttons-row">
                         <button id="btn-fullscreen-hud" class="hud-btn" title="Pantalla Completa" aria-label="Pantalla Completa">⛶</button>
                         <button id="btn-sound-toggle" class="hud-btn" title="Alternar Sonido y Música" aria-label="Sonido">🔊</button>
+                        <button id="btn-audio-settings-hud" class="hud-btn" title="Configuración de audio (F3)" aria-label="Abrir configuración de audio">⚙</button>
                         <button id="btn-pause-hud" class="hud-btn" title="Pausar Partida" aria-label="Pausa">⏸</button>
                     </div>
                 </div>
@@ -88,6 +101,7 @@
 
             <!-- Contador Dinámico de Combo -->
             <div id="combo-display" class="combo-counter">COMBO x2</div>
+            <div id="rpg-toast" class="rpg-toast hidden" role="status" aria-live="polite"></div>
 
             <!-- Controles Táctiles para Dispositivos Móviles y Tablets -->
             <div id="touch-controls">
@@ -148,6 +162,7 @@
                 <button id="btn-shop" class="btn">TIENDA / ARMAS</button>
                 <button id="btn-upgrades" class="btn btn-purple">MEJORAS Y HABILIDADES</button>
                 <button id="btn-customize" class="btn btn-purple">PERSONALIZAR STICKMAN</button>
+                <button id="btn-audio-settings" class="btn btn-purple">CONFIGURACIÓN DE AUDIO</button>
                 <button id="btn-controls" class="btn">CONTROLES</button>
                 <button id="btn-progress" class="btn">PROGRESO</button>
                 <button id="btn-fullscreen-menu" class="btn btn-purple">⛶ PANTALLA COMPLETA</button>
@@ -160,7 +175,9 @@
             <h2 class="neon-title" style="font-size: 2.6rem;">PAUSADO</h2>
             <div class="btn-container" style="margin-top: 24px;">
                 <button id="btn-resume" class="btn">CONTINUAR</button>
+                <button id="btn-pause-audio-settings" class="btn btn-purple">CONFIGURACIÓN DE AUDIO</button>
                 <button id="btn-pause-shop" class="btn">TIENDA DE ARMAS</button>
+                <button id="btn-pause-progress" class="btn btn-purple">RANGOS Y MISIONES</button>
                 <button id="btn-quit" class="btn btn-magenta">SALIR AL MENÚ</button>
             </div>
         </div>
@@ -344,6 +361,48 @@
             </div>
         </div>
 
+        <!-- PANTALLA: CONFIGURACIÓN DE AUDIO -->
+        <div id="audio-settings-overlay" class="overlay hidden">
+            <div class="panel audio-panel" role="dialog" aria-modal="true" aria-labelledby="audio-settings-title">
+                <div id="audio-settings-title" class="panel-title">CONFIGURACIÓN DE AUDIO</div>
+                <p class="audio-help">F3 para abrir o cerrar · Botón Atrás del mando Xbox 360</p>
+                <div class="audio-section">
+                    <div class="audio-row">
+                        <span>Volumen general</span>
+                        <output id="audio-general-value">100%</output>
+                    </div>
+                    <input id="audio-general-volume" class="audio-slider" type="range" min="0" max="100" step="1" value="100">
+                </div>
+                <div class="audio-section">
+                    <div class="audio-row">
+                        <span>Música</span>
+                        <output id="audio-music-value">55%</output>
+                    </div>
+                    <input id="audio-music-volume" class="audio-slider" type="range" min="0" max="100" step="1" value="55">
+                    <label class="audio-toggle">
+                        <span>Activar música</span>
+                        <input id="audio-music-enabled" type="checkbox" checked>
+                    </label>
+                </div>
+                <div class="audio-section">
+                    <div class="audio-row">
+                        <span>Efectos de sonido</span>
+                        <output id="audio-sfx-value">70%</output>
+                    </div>
+                    <input id="audio-sfx-volume" class="audio-slider" type="range" min="0" max="100" step="1" value="70">
+                    <label class="audio-toggle">
+                        <span>Activar efectos</span>
+                        <input id="audio-sfx-enabled" type="checkbox" checked>
+                    </label>
+                </div>
+                <div class="audio-actions">
+                    <button id="btn-save-audio" class="btn btn-green" type="button">GUARDAR</button>
+                    <button id="btn-reset-audio" class="btn btn-purple" type="button">RESTABLECER</button>
+                    <button id="btn-close-audio" class="btn" type="button">CERRAR</button>
+                </div>
+            </div>
+        </div>
+
         <!-- PANTALLA: GUÍA DE CONTROLES -->
         <div id="controls-overlay" class="overlay hidden">
             <div class="panel">
@@ -352,22 +411,26 @@
                     <div style="margin-bottom: 12px;">
                         <h4 style="color: var(--neon-cyan); font-family: var(--font-heading); margin-bottom: 6px;">P1 — TECLADO</h4>
                         <p><strong style="color: var(--neon-cyan);">A / D:</strong> Movimiento</p>
-                        <p><strong style="color: var(--neon-cyan);">W:</strong> Saltar</p>
-                        <p><strong style="color: var(--neon-cyan);">S:</strong> Agacharse (acción secundaria)</p>
-                        <p><strong style="color: var(--neon-cyan);">F:</strong> Ataque</p>
+                        <p><strong style="color: var(--neon-cyan);">W / ESPACIO:</strong> Saltar</p>
+                        <p><strong style="color: var(--neon-cyan);">S:</strong> Agacharse</p>
+                        <p><strong style="color: var(--neon-cyan);">J:</strong> Ataque Rápido</p>
+                        <p><strong style="color: var(--neon-cyan);">K:</strong> Ataque Pesado</p>
+                        <p><strong style="color: var(--neon-cyan);">L:</strong> Ataque Especial</p>
                         <p><strong style="color: var(--neon-cyan);">Q:</strong> Cambiar arma</p>
                         <p><strong style="color: var(--neon-purple);">MAYÚS IZQUIERDO:</strong> Dash / esquiva rápida</p>
-                        <p><strong style="color: var(--neon-yellow);">Compatibilidad anterior:</strong> Espacio salta; J/K/L mantienen ataque rápido/pesado/especial.</p>
-                        <p><strong style="color: var(--neon-yellow);">[P] / [Escape]:</strong> Pausa</p>
+                        <p><strong style="color: var(--neon-cyan);">[P] / [Escape]:</strong> Pausa</p>
                     </div>
                     <hr style="border-color: rgba(0,243,255,0.25); margin: 12px 0;">
                     <div style="margin-bottom: 12px;">
                         <h4 style="color: var(--neon-magenta); font-family: var(--font-heading); margin-bottom: 6px;">P2 — TECLADO</h4>
                         <p><strong style="color: var(--neon-cyan);">← / →:</strong> Movimiento</p>
                         <p><strong style="color: var(--neon-cyan);">↑:</strong> Saltar</p>
-                        <p><strong style="color: var(--neon-cyan);">↓:</strong> Agacharse (acción secundaria)</p>
-                        <p><strong style="color: var(--neon-cyan);">ENTER:</strong> Ataque</p>
-                        <p><strong style="color: var(--neon-pink);">O:</strong> Habilidad definitiva (con 100⚡)</p>
+                        <p><strong style="color: var(--neon-cyan);">↓:</strong> Agacharse</p>
+                        <p><strong style="color: var(--neon-cyan);">1 (Numpad / fila superior):</strong> Ataque Rápido</p>
+                        <p><strong style="color: var(--neon-cyan);">2 (Numpad / fila superior):</strong> Ataque Pesado</p>
+                        <p><strong style="color: var(--neon-cyan);">3 (Numpad / fila superior):</strong> Ataque Especial</p>
+                        <p><strong style="color: var(--neon-cyan);">4 (Numpad / fila superior):</strong> Cambiar arma</p>
+                        <p><strong style="color: var(--neon-cyan);">0 (Numpad / fila superior):</strong> Habilidad definitiva (con 100 ⚡)</p>
                         <p><strong style="color: var(--neon-purple);">MAYÚS DERECHO:</strong> Dash / esquiva rápida</p>
                     </div>
                     <hr style="border-color: rgba(0,243,255,0.25); margin: 12px 0;">
@@ -398,11 +461,13 @@
 
         <!-- PANTALLA: ESTADÍSTICAS Y PROGRESO -->
         <div id="progress-overlay" class="overlay hidden">
-            <div class="panel">
-                <div class="panel-title">ESTADÍSTICAS Y PROGRESO</div>
-                <div id="progress-stats">
-                    <!-- Rellenado dinámicamente -->
-                </div>
+            <div class="panel rpg-progress-panel">
+                <div class="panel-title">PROGRESO DE CAMPAÑA Y RANGOS</div>
+                <div id="campaign-progress"></div>
+                <div id="progress-stats"></div>
+                <div id="zone-progress-list" class="zone-progress-list" aria-live="polite"></div>
+                <div id="rpg-profiles" class="rpg-profiles" aria-live="polite"></div>
+                <button id="btn-reset-progress-screen" class="btn btn-magenta" type="button">REINICIAR PROGRESO</button>
                 <button id="btn-close-progress" class="btn" style="margin-top: 14px;">VOLVER</button>
             </div>
         </div>
@@ -422,7 +487,7 @@
         <!-- PANTALLA: VICTORIA ABSOLUTA -->
         <div id="victory-overlay" class="overlay hidden">
             <div class="neon-title" style="color: var(--neon-green); text-shadow: 0 0 25px var(--neon-green); font-size: 2.8rem;">VICTORIA ABSOLUTA</div>
-            <div class="neon-subtitle" style="color: var(--neon-cyan);">¡HAS CONQUISTADO LAS 15 ZONAS Y VENCIDO A TODOS LOS JEFES!</div>
+            <div class="neon-subtitle" style="color: var(--neon-cyan);">¡HAS CONQUISTADO LAS 21 ZONAS Y VENCIDO A TODOS LOS JEFES!</div>
             <div id="victory-stats">
                 <!-- Rellenado dinámicamente -->
             </div>
@@ -459,6 +524,7 @@
     <script src="js/input.js"></script>
     <script src="js/entities.js"></script>
     <script src="js/waves.js"></script>
+    <script src="js/rpg.js"></script>
     <script src="js/game.js"></script>
 </body>
 
