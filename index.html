@@ -18,6 +18,7 @@
         <!-- Intro de video previa al menú principal -->
         <div id="intro-overlay" class="intro-overlay">
             <video id="intro-video" src="video/intro.mp4" playsinline muted></video>
+            <div class="intro-credits">ANIMACIÓN DE INTRO: <span class="neon-author">@Hexalhaxel</span></div>
             <button id="btn-unmute-intro" class="btn hidden" type="button">🔊 ACTIVAR SONIDO</button>
             <button id="btn-skip-intro" class="btn" type="button">OMITIR</button>
         </div>
@@ -165,9 +166,27 @@
                 <button id="btn-audio-settings" class="btn btn-purple">CONFIGURACIÓN DE AUDIO</button>
                 <button id="btn-controls" class="btn">CONTROLES</button>
                 <button id="btn-progress" class="btn">PROGRESO</button>
+                <button id="btnCredits" class="menu-btn btn">CRÉDITOS</button>
                 <button id="btn-fullscreen-menu" class="btn btn-purple">⛶ PANTALLA COMPLETA</button>
                 <button id="btn-reset" class="btn btn-magenta">REINICIAR PROGRESO</button>
             </div>
+        </div>
+
+        <!-- MODAL: CRÉDITOS -->
+        <div id="credits-overlay" class="overlay hidden">
+            <section class="panel credits-panel" role="dialog" aria-modal="true" aria-labelledby="credits-title">
+                <h2 id="credits-title" class="panel-title">NEON STICK: CYBER ARENA</h2>
+                <div class="credits-section">
+                    <h3>DIRECTOR &amp; PROGRAMADOR PRINCIPAL</h3>
+                    <p><span class="neon-director">@Zaid Andrade</span></p>
+                </div>
+                <div class="credits-section">
+                    <h3>ANIMACIÓN DE INTRO</h3>
+                    <p><span class="neon-author">@Hexalhaxel</span></p>
+                    <p class="credits-description">(Diseño &amp; Animación de la Secuencia de Apertura)</p>
+                </div>
+                <button id="btn-close-credits" class="btn" type="button">VOLVER</button>
+            </section>
         </div>
 
         <!-- PANTALLA: MENÚ DE PAUSA -->
@@ -332,7 +351,7 @@
                 <div class="customization-actions">
                     <button id="btn-save-customization" class="btn btn-green" type="submit">APLICAR</button>
                     <button id="btn-reset-customization" class="btn btn-purple" type="button">RESTABLECER</button>
-                    <button id="btn-close-customization" class="btn btn-magenta" type="button">CANCELAR</button>
+                    <button id="btn-close-customization" class="btn btn-magenta" type="button">CERRAR</button>
                 </div>
             </form>
             <div id="color-picker" class="color-picker-backdrop hidden">
