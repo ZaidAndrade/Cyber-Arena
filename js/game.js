@@ -781,6 +781,25 @@ class Game {
         document.getElementById('btn-controls').onclick = () => { sound.init(); this.showOverlay('controls-overlay'); };
         document.getElementById('btn-progress').onclick = () => { sound.init(); this.openProgress(); };
         document.getElementById('btn-pause-progress').onclick = () => this.openProgress();
+        const creditsOverlay = document.getElementById('credits-overlay');
+        const creditsButton = document.getElementById('btnCredits');
+        const closeCreditsButton = document.getElementById('btn-close-credits');
+        const closeCredits = () => {
+            this.showOverlay('menu-overlay');
+            creditsButton.focus();
+        };
+        creditsButton.addEventListener('click', () => {
+            this.showOverlay('credits-overlay');
+            closeCreditsButton.focus();
+        });
+        closeCreditsButton.addEventListener('click', closeCredits);
+        this.handleCreditsKeyDown = event => {
+            if (event.code !== 'Escape' || creditsOverlay.classList.contains('hidden')) return;
+            event.preventDefault();
+            event.stopImmediatePropagation();
+            closeCredits();
+        };
+        window.addEventListener('keydown', this.handleCreditsKeyDown, true);
         document.getElementById('rpg-profiles').addEventListener('click', event => {
             const button = event.target.closest('[data-rpg-trial]');
             if (!button) return;
